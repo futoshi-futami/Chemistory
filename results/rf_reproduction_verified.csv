@@ -1,0 +1,5 @@
+model,rng_sample_kind,R2,RMSE,MAE,n,r_version,randomForest_version,pls_version,R2_supplied_current,R2_supplied_reported
+summary_first_angle_raw,Rejection,0.8531868,3.880222,1.655959,170,R 4.6.1,4.7.1.2,2.9.0,0.8531868,0.8542165
+summary_first_angle_raw_residualPLS5_RF,Rejection,0.9005724,3.193211,1.339298,170,R 4.6.1,4.7.1.2,2.9.0,0.9005724,0.9082231
+summary_first_angle_raw,Rounding,0.8531868,3.880222,1.655959,170,R 4.6.1,4.7.1.2,2.9.0,0.8531868,0.8542165
+summary_first_angle_raw_residualPLS5_RF,Rounding,0.9005724,3.193211,1.339298,170,R 4.6.1,4.7.1.2,2.9.0,0.9005724,0.9082231

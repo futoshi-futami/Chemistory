@@ -65,3 +65,16 @@ pytest -q
 ## 評価上の注意
 
 `dist_auto` の `tag=b` は目的変数の平均と分散が他tagから大きく外れます。tag 10, 15, 20, 25への外挿が良好でも、全tagを一括したOOF指標は `tag=b` に強く左右されます。ノートブックでは総合値だけでなくtag別指標を必ず表示します。
+
+## 検証済み結果
+
+GitHub Actions（R 4.6.1, randomForest 4.7.1.2, pls 2.9.0）でもPython/Rの双方を再実行済みです。
+
+| モデル | R2 | RMSE | MAE |
+| --- | ---: | ---: | ---: |
+| 受領コードのbase RF再現 | 0.853187 | 3.880222 | 1.655959 |
+| 受領コードのresidual PLS5 + RF再現 | 0.900572 | 3.193211 | 1.339298 |
+| GPR: cyclic angle + fold内X_proc PCA8 + Matérn 3/2 | 0.933874 | 2.604119 | 1.191774 |
+| dist_auto GPR: tag 10完全hold-out | 0.978301 | 0.000365 | 0.000296 |
+
+RFの再現値は同梱された `final_model_R_randomForest_from_python_metrics.csv` と表示精度内で完全一致しました。一方、`04_reference_RF_results.csv` の最終値（R2=0.908223, RMSE=3.067897, MAE=1.261954）とは異なります。Rの `sample.kind` を現行 `Rejection` と旧 `Rounding` の双方で実行しても同じ値だったため、この差は乱数方式では説明できません。報告表の作成時点では、現在同梱されたコード・設定・入力のいずれかが異なっていた可能性があります。
