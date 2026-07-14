@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chemistory-gpr"
+version = "0.1.0"
+description = "Colab-ready RF reproduction and leakage-safe GPR workflows"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.26,<3",
+  "pandas>=2.0,<3",
+  "scikit-learn>=1.4,<2",
+  "matplotlib>=3.8,<4",
+  "plotly>=5.20,<7",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

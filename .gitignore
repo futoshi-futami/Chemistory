@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+build/
+dist/
+*.egg-info/
+results/generated_*.csv
+results/*.html
+data/dist_auto/Xmat_*_grid.csv
