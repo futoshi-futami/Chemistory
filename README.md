@@ -9,6 +9,21 @@
 
 上から順にセルを実行してください。1冊目は、必要ならColabへR本体と `randomForest`, `pls` を導入し、Pythonから `Rscript` を呼びます。ローカルWindowsの `Rscript.exe` パス指定は不要です。
 
+データの内容、fold内前処理、RF、GPRのカーネル、全指標の読み方は、[実験方法と結果の詳細（日本語）](docs/EXPERIMENTS_JA.md)にまとめています。
+
+### Colabで `ModuleNotFoundError: chemistory_gpr` が出た場合
+
+最新版では最初の初期化セルがclone、データ展開、editable install、import確認をまとめて実行します。まずランタイムを再起動し、最初から「すべてのセルを実行」してください。既存のColabを開いたまま直す場合は、次を実行してから続けられます。
+
+```python
+import sys, subprocess
+subprocess.run(
+    [sys.executable, "-m", "pip", "install", "-q", "-e", str(PROJECT_ROOT)],
+    check=True,
+)
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+```
+
 ## 1冊目で行うこと
 
 1. 3つのCSVの `file_key`、行順、欠損、固定10-foldを検査します。
@@ -78,3 +93,5 @@ GitHub Actions（R 4.6.1, randomForest 4.7.1.2, pls 2.9.0）でもPython/Rの双
 | dist_auto GPR: tag 10完全hold-out | 0.978301 | 0.000365 | 0.000296 |
 
 RFの再現値は同梱された `final_model_R_randomForest_from_python_metrics.csv` と表示精度内で完全一致しました。一方、`04_reference_RF_results.csv` の最終値（R2=0.908223, RMSE=3.067897, MAE=1.261954）とは異なります。Rの `sample.kind` を現行 `Rejection` と旧 `Rounding` の双方で実行しても同じ値だったため、この差は乱数方式では説明できません。報告表の作成時点では、現在同梱されたコード・設定・入力のいずれかが異なっていた可能性があります。
+
+結果の詳しい解釈は[実験方法と結果の詳細](docs/EXPERIMENTS_JA.md#5-gpr_handoff-の評価と結果)を参照してください。要点は、GPRの最大改善が角度のsin/cos化単独ではなく、`X_proc` のfold内PCA8追加で得られたこと、また `dist_auto` ではtag 10–25とtag bで外挿性能が大きく異なることです。
