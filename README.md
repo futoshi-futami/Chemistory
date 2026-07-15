@@ -22,6 +22,24 @@
 
 挙動診断では、Matérn 3/2 GPRはRFより7/10 foldでRMSEが小さく、170例中57.1%で絶対誤差が小さくなりました。一方、fold 1・6・7ではRFに負け、最悪fold 7のRMSEは4.234です。予測標準偏差と絶対誤差のSpearman相関も0.207に留まるため、全体の95% coverageが0.953でも、個々の大誤差を強く識別できているわけではありません。
 
+## 分子軸の角度帯ごとの結果
+
+`C3H3_angle_xy` と `C6H6_angle_xy` は化学結合角ではなく、共通xy座標系におけるC3→H3・C6→H6方向の方位角です。2本は全170例でほぼ反対向きで、反平行からのずれは平均0.374°、最大3.012°でした。そのため、C3→H3を反転してC6→H6と円周平均した一本の「分子軸方位」へ整理しました。分子軸は−22.95°から60.94°に分布します。
+
+| 分子軸方位 | n | y 平均 ± SD | 最良GPR（RMSE） | RF RMSE | 読み取り |
+| --- | ---: | ---: | --- | ---: | --- |
+| −30–−10° | 24 | 46.10 ± 7.65 | Matérn 5/2（2.956） | 4.338 | 滑らかなGPR群がRFより良い |
+| −10–10° | 17 | 45.79 ± 4.38 | RBF-ARD（1.068） | 2.132 | ARDが局所首位だがnが小さい |
+| 10–30° | 36 | 47.94 ± 2.72 | Matérn 3/2（1.026） | 1.934 | Matérn 3/2がRFのRMSEを46.9%低減 |
+| 30–50° | 52 | 42.58 ± 8.96 | Matérn 3/2（1.758） | 3.585 | Matérn 3/2がRFのRMSEを51.0%低減 |
+| 50–70° | 41 | 38.26 ± 15.25 | Matérn 1/2（3.525） | **3.129** | RFが全体首位。粗いGPRほど相対的に有利 |
+
+全体首位のMatérn 3/2が強いのは、主に10–50°の88例を非常によく表せるためです。一方、50–70°だけでMatérn 3/2の全二乗誤差の59.4%を占め、95% coverageも0.829へ下がります。この帯には `y<30` の低応答枝が9/41例あり、残り32例との単変量比較では、H3から入力上の距離5以内にあるO数が7.33対0.97、Mg数が6.67対0.91、逆距離和が3.492対0.422でした。最初のO/Mg距離も約3.03/3.14対5.30/5.39と短く、低応答枝はH3近傍の高密度・近距離Mg/O環境と対応します。
+
+最寄り訓練分子軸角とMatérn 3/2絶対誤差のSpearman相関は−0.009で、高角度帯にも41例あります。したがって失敗の主因は「その角度の訓練例がない」ことより、同じような方位でもMg/O局所環境によって応答が枝分かれすることだと考えるのが妥当です。滑らかな定常GPRは枝の間を平均化しやすく、粗いMatérn 1/2やしきい値分割を行うRFが相対的に有利になります。
+
+ただし、角度帯と `y<30` は結果を見た後に定義した探索的診断で、特徴量同士も相関しています。「Mg/Oが近いから応答が低下する」という因果の確定ではありません。角度帯別の勝者を実運用するには、内側foldでregimeとモデルを選ぶnested CV、または新規構造での検証が必要です。詳細と次の物理仮説は[主実験の詳細](docs/EXPERIMENTS_JA.md#6-分子軸角度別の挙動と構造仮説)にまとめています。
+
 ## Colab
 
 - [主解析 — 01: RF再現とGPRカーネル比較](https://colab.research.google.com/github/futoshi-futami/Chemistory/blob/main/notebooks/01_RF_and_GPR_handoff_Colab.ipynb)
@@ -69,6 +87,7 @@ python scripts/prepare_data.py
 python scripts/run_rf_reproduction.py       # RscriptとR packagesが必要
 python scripts/run_gpr_handoff.py --kernel-only --quick
 python scripts/summarize_handoff_results.py
+python scripts/analyze_handoff_angles.py
 pytest -q
 ```
 
@@ -83,6 +102,9 @@ pytest -q
 - `results/gpr_handoff_best_vs_rf_predictions.csv`: 同一試料上のGPR/RF予測と誤差
 - `results/gpr_handoff_largest_errors.csv`: GPRの絶対誤差上位15例
 - `results/gpr_handoff_behavior_summary.csv`: 改善量と不確実性診断の要約
+- `results/gpr_handoff_angle_winners.csv`: 分子軸・各方向・反平行ずれ別の局所首位
+- `results/gpr_handoff_angle_method_metrics.csv`: 角度帯×全モデルのRMSE、MAE、coverage、誤差寄与
+- `results/gpr_handoff_high_angle_structural_contrasts.csv`: 50–70°の低応答枝と他試料のMg/O特徴差
 
 ## RF再現値について
 
