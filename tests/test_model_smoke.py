@@ -15,6 +15,9 @@ from chemistory_gpr.handoff import (
     load_handoff_data,
 )
 from chemistory_gpr.kernels import build_signal_plus_white_kernel
+from chemistory_gpr.geometry3d import derive_rotation_invariant_features
+from chemistory_gpr.kernels import build_axis_environment_kernel
+from chemistory_gpr.nested_group import build_nested_model, default_nested_candidates
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,3 +80,52 @@ def test_additional_handoff_kernels_build_with_expected_parameters():
     linear = build_signal_plus_white_kernel(kernel_family="linear", **common)
     assert rq.k1.k2.alpha == 1.0
     assert linear.k1.k2.sigma_0 == 1.0
+
+
+def test_axis_environment_interaction_kernel_and_model_predict():
+    kernel = build_axis_environment_kernel(
+        axis_dims=(0, 1, 2, 3),
+        environment_dims=(4, 5),
+        include_interaction=True,
+    )
+    assert len(kernel.theta) == 8
+
+    data = load_handoff_data(ROOT / "data" / "gpr_handoff")
+    train = data.fold_id != 1
+    test = ~train
+    candidate = next(
+        item
+        for item in default_nested_candidates()
+        if item.name == "axis_environment_interaction_matern32"
+    )
+    model = build_nested_model(candidate, 123).fit(
+        data.base.loc[train], data.xproc.loc[train], data.y[train]
+    )
+    mean, std = model.predict(data.base.loc[test], data.xproc.loc[test])
+    assert np.isfinite(mean).all()
+    assert (std > 0).all()
+
+
+def test_rotation_invariant_geometry_features_on_synthetic_axis():
+    rows = [
+        ("s1", "C3", "C", -1.0, 0.0, 0.0),
+        ("s1", "H3", "H", -2.0, 0.0, 0.0),
+        ("s1", "C6", "C", 1.0, 0.0, 0.0),
+        ("s1", "H6", "H", 2.0, 0.0, 0.0),
+        ("s1", "Mg1", "Mg", -3.0, 1.0, 0.0),
+        ("s1", "Mg2", "Mg", 3.0, 2.0, 0.0),
+        ("s1", "O1", "O", -2.0, 2.0, 0.0),
+        ("s1", "O2", "O", 2.0, 1.0, 0.0),
+    ]
+    coordinates = np.array(rows, dtype=object)
+    import pandas as pd
+
+    table = pd.DataFrame(
+        coordinates, columns=["file_key", "atom_label", "element", "x", "y", "z"]
+    )
+    table[["x", "y", "z"]] = table[["x", "y", "z"]].astype(float)
+    features = derive_rotation_invariant_features(table).iloc[0]
+    assert np.isclose(features["axis_azimuth_cos"], 1.0)
+    assert np.isclose(features["axis_abs_elevation_rad"], 0.0)
+    assert np.isclose(features["antiparallel_deviation_rad"], 0.0)
+    assert features["Mg_distance_min_H3_minus_H6"] < 0

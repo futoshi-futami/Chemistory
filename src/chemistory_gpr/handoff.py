@@ -102,30 +102,16 @@ class HandoffGPR:
         self.config = config
 
     def fit(self, base: pd.DataFrame, xproc: pd.DataFrame, y: np.ndarray) -> "HandoffGPR":
-        base_x = transform_angles(base.drop(columns=["file_key", "y"], errors="ignore"), self.config.cyclic_angles)
-        self.base_columns_ = base_x.columns.tolist()
-        base_array = base_x.to_numpy(dtype=float)
-        self.base_variance_ = VarianceThreshold()
-        base_array = self.base_variance_.fit_transform(base_array)
-        self.base_scaler_ = StandardScaler()
-        design = self.base_scaler_.fit_transform(base_array)
-
+        self.preprocessor_ = HandoffFeatureTransformer(self.config)
+        design = self.preprocessor_.fit_transform(base, xproc)
+        # Backward-compatible aliases retained for notebooks and downstream diagnostics.
+        self.base_columns_ = self.preprocessor_.base_columns_
+        self.base_variance_ = self.preprocessor_.base_variance_
+        self.base_scaler_ = self.preprocessor_.base_scaler_
         if self.config.use_xproc:
-            xp = xproc.drop(columns="file_key", errors="ignore").to_numpy(dtype=float)
-            self.xproc_variance_ = VarianceThreshold()
-            xp = self.xproc_variance_.fit_transform(xp)
-            self.xproc_scaler_ = StandardScaler()
-            xp = self.xproc_scaler_.fit_transform(xp)
-            n_components = min(self.config.xproc_components, xp.shape[0] - 1, xp.shape[1])
-            self.xproc_pca_ = PCA(
-                n_components=n_components,
-                svd_solver="randomized",
-                iterated_power=7,
-                random_state=self.config.seed,
-            )
-            scores = self.xproc_pca_.fit_transform(xp)
-            # Do not re-standardize PCA scores: their variances encode component importance.
-            design = np.column_stack([design, scores])
+            self.xproc_variance_ = self.preprocessor_.xproc_variance_
+            self.xproc_scaler_ = self.preprocessor_.xproc_scaler_
+            self.xproc_pca_ = self.preprocessor_.xproc_pca_
 
         kernel = build_signal_plus_white_kernel(
             kernel_family=self.config.kernel_family,
@@ -148,6 +134,56 @@ class HandoffGPR:
         return self
 
     def _design(self, base: pd.DataFrame, xproc: pd.DataFrame) -> np.ndarray:
+        return self.preprocessor_.transform(base, xproc)
+
+    def predict(
+        self,
+        base: pd.DataFrame,
+        xproc: pd.DataFrame,
+        return_std: bool = True,
+    ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+        return self.gpr_.predict(self._design(base, xproc), return_std=return_std)
+
+
+class HandoffFeatureTransformer:
+    """Leakage-safe base scaling and optional X_proc PCA used by handoff models."""
+
+    def __init__(self, config: HandoffGPRConfig):
+        self.config = config
+
+    def fit_transform(self, base: pd.DataFrame, xproc: pd.DataFrame) -> np.ndarray:
+        base_x = transform_angles(base.drop(columns=["file_key", "y"], errors="ignore"), self.config.cyclic_angles)
+        self.base_columns_ = base_x.columns.tolist()
+        base_array = base_x.to_numpy(dtype=float)
+        self.base_variance_ = VarianceThreshold()
+        base_array = self.base_variance_.fit_transform(base_array)
+        support = self.base_variance_.get_support()
+        self.base_selected_columns_ = [
+            column for column, keep in zip(self.base_columns_, support, strict=True) if keep
+        ]
+        self.base_scaler_ = StandardScaler()
+        design = self.base_scaler_.fit_transform(base_array)
+
+        if self.config.use_xproc:
+            xp = xproc.drop(columns="file_key", errors="ignore").to_numpy(dtype=float)
+            self.xproc_variance_ = VarianceThreshold()
+            xp = self.xproc_variance_.fit_transform(xp)
+            self.xproc_scaler_ = StandardScaler()
+            xp = self.xproc_scaler_.fit_transform(xp)
+            n_components = min(self.config.xproc_components, xp.shape[0] - 1, xp.shape[1])
+            self.xproc_pca_ = PCA(
+                n_components=n_components,
+                svd_solver="randomized",
+                iterated_power=7,
+                random_state=self.config.seed,
+            )
+            scores = self.xproc_pca_.fit_transform(xp)
+            # Do not re-standardize PCA scores: their variances encode component importance.
+            design = np.column_stack([design, scores])
+        self.n_features_out_ = int(design.shape[1])
+        return design
+
+    def transform(self, base: pd.DataFrame, xproc: pd.DataFrame) -> np.ndarray:
         base_x = transform_angles(base.drop(columns=["file_key", "y"], errors="ignore"), self.config.cyclic_angles)
         missing = [column for column in self.base_columns_ if column not in base_x]
         if missing:
@@ -159,14 +195,6 @@ class HandoffGPR:
             xp = self.xproc_scaler_.transform(self.xproc_variance_.transform(xp))
             design = np.column_stack([design, self.xproc_pca_.transform(xp)])
         return design
-
-    def predict(
-        self,
-        base: pd.DataFrame,
-        xproc: pd.DataFrame,
-        return_std: bool = True,
-    ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
-        return self.gpr_.predict(self._design(base, xproc), return_std=return_std)
 
 
 def cross_validate_handoff(

@@ -9,11 +9,50 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import (
     ConstantKernel,
     DotProduct,
+    Kernel,
     Matern,
     RBF,
     RationalQuadratic,
     WhiteKernel,
 )
+
+
+class ActiveDimensions(Kernel):
+    """Apply a scikit-learn kernel to a fixed subset of input columns."""
+
+    def __init__(self, base_kernel: Kernel, active_dims: tuple[int, ...]):
+        self.base_kernel = base_kernel
+        self.active_dims = active_dims
+
+    @property
+    def hyperparameters(self):
+        return self.base_kernel.hyperparameters
+
+    @property
+    def theta(self):
+        return self.base_kernel.theta
+
+    @theta.setter
+    def theta(self, theta):
+        self.base_kernel.theta = theta
+
+    @property
+    def bounds(self):
+        return self.base_kernel.bounds
+
+    def __call__(self, X, Y=None, eval_gradient=False):
+        X_active = np.asarray(X)[:, self.active_dims]
+        Y_active = None if Y is None else np.asarray(Y)[:, self.active_dims]
+        return self.base_kernel(X_active, Y_active, eval_gradient=eval_gradient)
+
+    def diag(self, X):
+        return self.base_kernel.diag(np.asarray(X)[:, self.active_dims])
+
+    def is_stationary(self):
+        return self.base_kernel.is_stationary()
+
+    def __repr__(self):
+        return f"ActiveDimensions({self.active_dims}, {self.base_kernel!r})"
 
 
 def build_signal_plus_white_kernel(
@@ -66,6 +105,54 @@ def build_signal_plus_white_kernel(
         ConstantKernel(1.0, signal_bounds) * spatial
         + WhiteKernel(noise_level=1e-2, noise_level_bounds=noise_bounds)
     )
+
+
+def build_axis_environment_kernel(
+    *,
+    axis_dims: tuple[int, ...],
+    environment_dims: tuple[int, ...],
+    include_interaction: bool,
+    axis_nu: float = 1.5,
+    environment_nu: float = 1.5,
+    signal_bounds: tuple[float, float] = (1e-2, 1e3),
+    length_scale_bounds: tuple[float, float] = (1e-2, 1e3),
+    noise_bounds: tuple[float, float] = (1e-6, 1e1),
+):
+    """Build ``k_axis + k_environment [+ k_axis*k_environment] + White``.
+
+    Each component has its own signal variance and isotropic length scale.  The
+    product term represents a non-additive orientation-by-environment effect.
+    """
+    if not axis_dims or not environment_dims:
+        raise ValueError("Both axis_dims and environment_dims must be non-empty")
+
+    def axis_spatial():
+        return ActiveDimensions(
+            Matern(length_scale=1.0, length_scale_bounds=length_scale_bounds, nu=axis_nu),
+            axis_dims,
+        )
+
+    def environment_spatial():
+        return ActiveDimensions(
+            Matern(
+                length_scale=1.0,
+                length_scale_bounds=length_scale_bounds,
+                nu=environment_nu,
+            ),
+            environment_dims,
+        )
+
+    axis_component = ConstantKernel(1.0, signal_bounds) * axis_spatial()
+    environment_component = ConstantKernel(1.0, signal_bounds) * environment_spatial()
+    signal = axis_component + environment_component
+    if include_interaction:
+        interaction = (
+            ConstantKernel(1.0, signal_bounds)
+            * axis_spatial()
+            * environment_spatial()
+        )
+        signal = signal + interaction
+    return signal + WhiteKernel(noise_level=1e-2, noise_level_bounds=noise_bounds)
 
 
 def fitted_kernel_diagnostics(

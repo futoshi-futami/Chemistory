@@ -1,0 +1,5 @@
+scheme,n_groups,min_group_n,median_group_n,max_group_n
+trajectory,30,1,6.5,9
+proximity_level,4,30,45.5,49
+orientation_family,18,1,9.5,17
+sweep_level,19,6,9.0,10

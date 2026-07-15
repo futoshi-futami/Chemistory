@@ -7,6 +7,13 @@ from chemistory_gpr.dist_auto import load_dist_auto_data, standardized_tag_centr
 from chemistory_gpr.angle_report import derive_angle_coordinates
 from chemistory_gpr.group_validation import make_prefix_group_folds
 from chemistory_gpr.handoff import load_handoff_data
+from chemistory_gpr.physical_features import (
+    COMPACT_AXIS_COLUMNS,
+    candidate_group_labels,
+    compact_axis_base,
+    file_key_token_diagnostics,
+    parse_file_key_tokens,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -106,3 +113,57 @@ def test_group_holdout_exposes_structure_series_extrapolation_gap():
         ]
     )
     assert low_branch == {"0-0-2-16", "0-0-3-18"}
+
+
+def test_file_key_tokens_support_only_provisional_physical_interpretation():
+    data = load_handoff_data(ROOT / "data" / "gpr_handoff")
+    tokens = parse_file_key_tokens(data.file_key)
+    diagnostics = file_key_token_diagnostics(data.base).set_index("token_position")
+    assert tokens[["token_1", "token_2"]].nunique().eq(1).all()
+    assert diagnostics.loc[3, "spearman_vs_y"] > 0.65
+    assert diagnostics.loc[4, "spearman_vs_axis_angle_deg"] > 0.8
+    assert diagnostics.loc[5, "spearman_vs_antiparallel_deviation_deg"] > 0.9
+    groups = candidate_group_labels(data.file_key, "trajectory")
+    assert groups.nunique() == 30
+
+
+def test_compact_axis_replaces_redundant_angles_with_four_coordinates():
+    data = load_handoff_data(ROOT / "data" / "gpr_handoff")
+    compact = compact_axis_base(data.base)
+    assert set(COMPACT_AXIS_COLUMNS).issubset(compact.columns)
+    assert not {
+        "C3H3_angle_xy",
+        "C6H6_angle_xy",
+        "angle_diff_C3_C6",
+        "dot_C3H3_C6H6",
+    }.intersection(compact.columns)
+    assert np.allclose(
+        compact["axis_azimuth_sin"] ** 2 + compact["axis_azimuth_cos"] ** 2,
+        1.0,
+    )
+
+
+def test_interaction_gp_improves_fixed_and_grouped_predictions():
+    fixed = pd.read_csv(ROOT / "results" / "gpr_handoff_fixed10_next_models_metrics.csv")
+    group = pd.read_csv(ROOT / "results" / "gpr_handoff_group10_next_models_metrics.csv")
+    fixed_interaction = fixed.loc[
+        fixed["candidate"].eq("axis_environment_interaction_matern32")
+    ].iloc[0]
+    group_interaction = group.loc[
+        group["candidate"].eq("axis_environment_interaction_matern32")
+    ].iloc[0]
+    group_legacy = group.loc[
+        group["candidate"].eq("legacy_angles_global_matern32")
+    ].iloc[0]
+    assert fixed_interaction["R2"] > 0.97
+    assert group_interaction["R2"] > 0.35
+    assert group_interaction["RMSE"] < group_legacy["RMSE"]
+
+
+def test_nested_group_selection_never_splits_a_trajectory():
+    folds = pd.read_csv(ROOT / "results" / "gpr_handoff_nested_group_outer_folds.csv")
+    assert folds["group"].nunique() == 30
+    assert folds.groupby("group")["outer_fold"].nunique().eq(1).all()
+    nested = pd.read_csv(ROOT / "results" / "gpr_handoff_nested_group_metrics.csv").iloc[0]
+    assert nested["R2"] > 0.3
+    assert nested["R2"] < 0.5

@@ -23,3 +23,7 @@ def test_colab_notebooks_install_package_before_first_model_import():
         joined = "\n".join(code_cells)
         assert "ARD_RESTARTS" in joined
         assert "rbf" in joined.lower()
+        if name.startswith("01_"):
+            assert "RUN_NESTED_GROUP_CV" in joined
+            assert "axis_environment_interaction_matern32" in joined
+            assert "derive_rotation_invariant_features" in joined
