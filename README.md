@@ -2,6 +2,22 @@
 
 このリポジトリの主目的は、`GPR_handoff.zip` の3つのCSVと指定済み固定10-foldを使い、受領したRF結果に対応するGaussian Process Regression（GPR）を複数カーネルで比較することです。`dist_auto.zip` はGPR実装とRBF-ARD設定の参考例であり、主解析・主モデル選択の対象ではありません。
 
+## 解析の全体像（最初にここを読む）
+
+| 項目 | 内容 |
+| --- | --- |
+| データ | 170構造・条件。111個のbase特徴と3,102個の `X_proc` |
+| 特徴量 | H3/H6近傍のMg/O数・距離要約・非対称性・原子種・C3→H3/C6→H6方向。GPRでは方向7列を4個の分子軸特徴へ整理し、`X_proc` はfold内PCA8 |
+| 予測対象 | 連続値 `y`。元PowerPointで「ディラジカル性」。単位と量子化学的定義はhandoff CSVに未収録 |
+| 主Held-out | 受領固定10-foldでは各回17行をHeld out。ただし同じ暫定trajectoryの別点は訓練側に入り得るため、主に既知系列内補間 |
+| 厳しいHeld-out | `file_key` 先頭4 tokenを暫定trajectoryとして丸ごとHeld out。5×4 nested group CVではモデルと角度境界もinner CVだけで選択 |
+| モデル | 受領RF、全体Matérn/RBF/Rational Quadratic等、加法GP、`軸 + 環境 + 軸×環境 + White` 相互作用GP、角度regime別expert |
+| 評価 | OOF R²・RMSE・MAE。GPRは95% coverage、区間幅、NLPD、分散と誤差の対応も評価 |
+| 結果 | 固定10-foldの相互作用GPは `R²=0.973807`、RFは0.908223。strict nested trajectory-groupは0.334491 |
+| 結論 | 既知系列内補間では相互作用GPが首位。未知trajectory外挿は改善余地が大きく、正式なgroupとraw 3D特徴が必要 |
+
+定義・前処理・Held-out設定・モデル・指標・結果・示唆を一続きで確認する場合は、[解析の全体像](docs/ANALYSIS_OVERVIEW_JA.md)を参照してください。
+
 ## 更新された主結果: 分子軸×Mg/O環境の相互作用GP
 
 生の角度・差・内積7列を `sin(分子軸方位), cos(分子軸方位), 面外傾きproxy, 反平行ずれ` の4変数へ整理し、残りの環境特徴と分けて
