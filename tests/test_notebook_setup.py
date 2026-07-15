@@ -27,3 +27,6 @@ def test_colab_notebooks_install_package_before_first_model_import():
             assert "RUN_NESTED_GROUP_CV" in joined
             assert "axis_environment_interaction_matern32" in joined
             assert "derive_rotation_invariant_features" in joined
+            assert "molecular_axis_uncertainty_animation" in joined
+            assert "interaction_surface_figure" in joined
+            assert "oof_uncertainty_figure" in joined

@@ -12,6 +12,8 @@ k=k_{axis}+k_{environment}+k_{axis}k_{environment}+k_{white}
 
 をfitしました。各成分はMatérn 3/2で、信号分散、軸・環境それぞれの長さ尺度、White noiseを各訓練fold内の第二種最尤法で推定します。
 
+この形は任意に複雑なカーネルを足したものではなく、OOF残差の構造から作った仮説です。全体Matérn 3/2は10–50°では強い一方、50–70°では同じ方位帯に高応答枝と低応答枝が共存し、低応答側だけH3近傍Mg/Oが密で面外傾きが小さくなっていました。全体カーネルは「同じ入力距離なら、空間のどこでも同じ滑らかさ・同じ類似性」を仮定し、加法カーネルも軸効果と環境効果を独立に足すだけです。そこで、軸も環境も似た二試料にだけ強い共分散を与える積項を追加しました。これはfunctional ANOVA / tensor-product GPの考え方で、「配向が局所環境の効き方を修飾する」ことを表します。Matérn 3/2は従来screenの首位で、RBFほど過度に滑らかでもMatérn 1/2ほど粗くもないため、各ブロックの最初の候補にしました。
+
 | 評価 | モデル | R² | RMSE | MAE |
 | --- | --- | ---: | ---: | ---: |
 | 受領RF対応の固定10-fold（既知系列内補間） | **相互作用GP** | **0.973807** | **1.638955** | **0.639434** |
@@ -26,6 +28,20 @@ k=k_{axis}+k_{environment}+k_{axis}k_{environment}+k_{white}
 相互作用GPは固定foldの全角度帯で改善し、以前RFが首位だった50–70°もRMSE 2.886でRF 3.129を上回りました。一方、trajectoryを丸ごと未知にすると性能は大幅に低下します。結論は「既知系列内の補間では相互作用GPが新しい首位。未知系列外挿も改善したが未解決」です。
 
 group10の最適化では、軸加法分散は10/10 foldで下限、環境加法分散は9/10 foldで下限、積項分散は中央値1.64でした。改善が軸または環境の単独効果より、両者の組合せに依存するという仮説を支持します。ただしこれはカーネル分解上の結果で、因果的な寄与率ではありません。
+
+## 対話的な分子軸・3D予測面・GP不確実性
+
+主Colabには次を追加しています。
+
+- `0-0-3-18` などのtrajectoryについて、C3→H3・C6→H6方向の3D模式図と、現在試料のOOF予測平均・95%予測区間をPlay/sliderで同期表示
+- 分子軸方位×面外傾き、および分子軸方位×H3近傍逆距離和の条件付き3D予測面
+- 3D面上で `予測平均 / 予測標準偏差 / 95%区間幅 / 上下限` をボタン切替
+- 全170 OOF点の予測区間、予測標準偏差と絶対誤差の対応をhover表示
+- 元座標が届いた後に、C/H/Mg/O原子とC3–H3・C6–H6結合を実座標で回転表示するviewer
+
+現在の左側「分子模型」は、受領CSVから復元可能な2本のC–H方向だけを示す**ベクトル模式図**です。z成分は絶対値しか分からないため、C6→H6側を正とする鏡映同値な符号を採用しています。Mg/O原子位置を捏造してはいません。3D予測面も、全データfitした説明用モデルで、表示しない全特徴を基準試料 `0-0-3-18-10` に固定した条件付きsliceです。性能値はこの面から計算せず、OOFまたは外側group CVを使います。
+
+保存済みHTMLは `figures/`、再計算可能な面データは `results/gpr_handoff_interaction_surface_*.csv` にあります。相互作用GPのOOF 95% coverageは0.976ですが、`pred_std` と絶対誤差のSpearman相関は0.199です。したがって分散面は「学習点から離れた組合せの警告」には有用でも、個別誤差の完全な検出器ではありません。
 
 `file_key` は、token 1–2が固定0、token 3が表面近接度／高さに似た軸、token 4が分子軸方位、token 5が面外傾き・反平行ずれのsweepと統計的に対応しました。生成規則そのものはZIP・PowerPoint・GitHubにないため、正式名称と外側groupは構造生成者への確認が必要です。詳細は[file_key・group・3D特徴](docs/FILE_KEY_AND_3D_JA.md)を参照してください。
 
@@ -89,6 +105,7 @@ group10の最適化では、軸加法分散は10/10 foldで下限、環境加法
 ## Colab
 
 - [主解析 — 01: RF再現とGPRカーネル比較](https://colab.research.google.com/github/futoshi-futami/Chemistory/blob/main/notebooks/01_RF_and_GPR_handoff_Colab.ipynb)
+- [PR #2の更新版 — 相互作用GPと対話的3D表示](https://colab.research.google.com/github/futoshi-futami/Chemistory/blob/agent/rbf-kernel-comparison/notebooks/01_RF_and_GPR_handoff_Colab.ipynb)
 - [参考付録 — 02: dist_autoへのGPR適用](https://colab.research.google.com/github/futoshi-futami/Chemistory/blob/main/notebooks/02_dist_auto_GPR_Colab.ipynb)
 
 1冊目が本研究の中心です。必要ならColabへR本体と `randomForest`, `pls` を導入し、Pythonから `Rscript` を呼びます。ローカルWindows用の `Rscript.exe` パス指定は不要です。
@@ -137,6 +154,7 @@ python scripts/analyze_handoff_angles.py
 python scripts/run_handoff_group_cv.py   # file_key prefixを候補系列とする補助評価
 python scripts/run_handoff_nested_group_cv.py  # モデル・角度gateを内側group CVで選択
 python scripts/analyze_handoff_next_models.py  # 相互作用GP、group感度、角度帯を再生成
+python scripts/build_handoff_visualizations.py # 3D面CSVと対話的HTMLを再生成
 pytest -q
 ```
 
@@ -162,6 +180,11 @@ pytest -q
 - `results/gpr_handoff_interaction_kernel_components.csv`: 相互作用カーネルのfold別成分
 - `results/gpr_handoff_file_key_token_diagnostics.csv`: file_key各tokenと幾何・環境の対応
 - `results/gpr_handoff_group_scheme_model_metrics.csv`: group定義感度
+- `results/gpr_handoff_interaction_surface_axis_tilt.csv`: 方位×面外傾きの平均・分散slice
+- `results/gpr_handoff_interaction_surface_h3_environment.csv`: 方位×H3近傍強度の平均・分散slice
+- `figures/gpr_handoff_molecular_axis_uncertainty_animation.html`: trajectory模式図とOOF区間のPlay/slider
+- `figures/gpr_handoff_interaction_surface_*.html`: 回転・切替可能な3D予測面
+- `figures/gpr_handoff_oof_uncertainty.html`: 全OOF区間と分散–誤差診断
 
 ## RF再現値について
 
@@ -181,5 +204,7 @@ pytest -q
 - `src/chemistory_gpr/kernels.py`: カーネル実装
 - `src/chemistory_gpr/nested_group.py`: structured GP、mixture、nested group CV
 - `src/chemistory_gpr/geometry3d.py`: 将来の元座標用の射影・垂直距離・非対称性
+- `src/chemistory_gpr/visualization.py`: 分子軸animation、3D GP slice、実座標viewer
+- `figures/`: Plotlyの対話的HTML
 - `results/gpr_handoff_*`: 主解析結果
 - `data/dist_auto`, `notebooks/02_*`, `results/dist_auto_*`: 参考付録

@@ -167,3 +167,21 @@ def test_nested_group_selection_never_splits_a_trajectory():
     nested = pd.read_csv(ROOT / "results" / "gpr_handoff_nested_group_metrics.csv").iloc[0]
     assert nested["R2"] > 0.3
     assert nested["R2"] < 0.5
+
+
+def test_saved_interaction_surfaces_include_mean_variance_and_reference_metadata():
+    for name in ("axis_tilt", "h3_environment"):
+        surface = pd.read_csv(
+            ROOT / "results" / f"gpr_handoff_interaction_surface_{name}.csv"
+        )
+        assert len(surface) == 51 * 35
+        assert np.isfinite(surface[["pred_mean", "pred_std", "lower_95", "upper_95"]]).all().all()
+        assert (surface["pred_std"] > 0).all()
+        assert surface["reference_file_key"].eq("0-0-3-18-10").all()
+        assert (
+            ROOT / "figures" / f"gpr_handoff_interaction_surface_{name}.html"
+        ).stat().st_size > 10_000
+
+    assert (
+        ROOT / "figures" / "gpr_handoff_molecular_axis_uncertainty_animation.html"
+    ).stat().st_size > 10_000
