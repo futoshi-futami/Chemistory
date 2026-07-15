@@ -43,6 +43,12 @@ def derive_angle_coordinates(base: pd.DataFrame) -> pd.DataFrame:
     )
     separation = np.abs(_wrap_radians(theta3 - theta6))
     deviation = np.abs(np.pi - separation)
+    dot_3d = base["dot_C3H3_C6H6"].to_numpy(float)
+    dot_xy = base["dot_xy_C3H3_C6H6"].to_numpy(float)
+    # dot_3d - dot_xy = u3_z * u6_z.  The two 3-D unit vectors are almost
+    # exactly antiparallel here, so -u3_z*u6_z is approximately |u_z|^2.
+    abs_z_proxy = np.sqrt(np.clip(-(dot_3d - dot_xy), 0.0, 1.0))
+    elevation_proxy = np.degrees(np.arcsin(np.clip(abs_z_proxy, 0.0, 1.0)))
     result = pd.DataFrame(
         {
             "file_key": base["file_key"].astype(str),
@@ -53,6 +59,10 @@ def derive_angle_coordinates(base: pd.DataFrame) -> pd.DataFrame:
             "axis_angle_deg": np.degrees(axis),
             "antiparallel_deviation_deg": np.degrees(deviation),
             "input_angle_diff_deg": np.degrees(base["angle_diff_C3_C6"].to_numpy(float)),
+            "dot_C3H3_C6H6": dot_3d,
+            "dot_xy_C3H3_C6H6": dot_xy,
+            "axis_abs_z_component_proxy": abs_z_proxy,
+            "axis_abs_elevation_deg_proxy": elevation_proxy,
         }
     )
     for column in ("C3H3_reversed_deg", "C6H6_angle_deg", "axis_angle_deg"):
@@ -334,6 +344,7 @@ def build_handoff_angle_report(data_dir: str | Path, results_dir: str | Path) ->
             y_max=("y", "max"),
             fraction_y_below_30=("y", lambda x: float(np.mean(x < 30.0))),
             axis_mean_deg=("axis_angle_deg", "mean"),
+            axis_abs_elevation_mean_deg_proxy=("axis_abs_elevation_deg_proxy", "mean"),
         )
         .reset_index()
     )
@@ -363,6 +374,8 @@ def build_handoff_angle_report(data_dir: str | Path, results_dir: str | Path) ->
                 "antiparallel_deviation_max_deg": angles[
                     "antiparallel_deviation_deg"
                 ].max(),
+                "dot_3d_min": angles["dot_C3H3_C6H6"].min(),
+                "dot_3d_max": angles["dot_C3H3_C6H6"].max(),
                 "spearman_axis_angle_vs_y": angles["axis_angle_deg"].corr(
                     angles["y"], method="spearman"
                 ),
@@ -384,6 +397,16 @@ def build_handoff_angle_report(data_dir: str | Path, results_dir: str | Path) ->
                         & angles["y"].lt(30.0)
                     ).sum()
                 ),
+                "high_angle_y_below_30_mean_abs_elevation_deg_proxy": angles.loc[
+                    angles["axis_angle_deg_bin"].eq("[50,70]")
+                    & angles["y"].lt(30.0),
+                    "axis_abs_elevation_deg_proxy",
+                ].mean(),
+                "high_angle_y_at_least_30_mean_abs_elevation_deg_proxy": angles.loc[
+                    angles["axis_angle_deg_bin"].eq("[50,70]")
+                    & angles["y"].ge(30.0),
+                    "axis_abs_elevation_deg_proxy",
+                ].mean(),
             }
         ]
     )

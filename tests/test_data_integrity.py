@@ -52,6 +52,18 @@ def test_handoff_angles_form_one_nearly_antiparallel_molecular_axis():
     assert angles["axis_angle_deg"].between(-30, 70).all()
     assert angles["antiparallel_deviation_deg"].max() < 3.1
     assert angles["antiparallel_deviation_deg"].mean() < 0.5
+    assert np.allclose(angles["dot_C3H3_C6H6"], -1.0, atol=1e-4)
+
+    high_angle = angles["axis_angle_deg_bin"].eq("[50,70]")
+    low_response = angles["y"].lt(30.0)
+    assert angles.loc[
+        high_angle & low_response, "axis_abs_elevation_deg_proxy"
+    ].mean() < (
+        angles.loc[
+            high_angle & ~low_response, "axis_abs_elevation_deg_proxy"
+        ].mean()
+        - 10.0
+    )
 
 
 def test_handoff_high_angle_regime_favors_rf_and_rougher_gpr():

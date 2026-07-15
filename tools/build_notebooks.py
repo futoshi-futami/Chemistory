@@ -247,15 +247,19 @@ def notebook_one() -> nbf.NotebookNode:
             "display(high_angle_contrasts.head(10))"""
         ),
         nbf.v4.new_code_cell(
-            """# 左: 応答の角度依存とH3近傍環境、右: 角度帯別RMSE\n"
+            """# 応答の角度依存をH3近傍環境・面外傾きで色分けし、右に角度帯別RMSEを表示\n"
             "angle_features = pd.read_csv(angle_paths['angle_features'])\n"
             "base_for_plot = pd.read_csv(DATA_DIR / '01_base_summary_first_angle.csv')\n"
             "angle_plot = angle_features.merge(base_for_plot[['file_key','O_H3_count_d5']], on='file_key', validate='one_to_one')\n"
-            "fig, axes = plt.subplots(1, 2, figsize=(14, 5))\n"
+            "fig, axes = plt.subplots(1, 3, figsize=(19, 5))\n"
             "scatter = axes[0].scatter(angle_plot['axis_angle_deg'], angle_plot['y'], c=angle_plot['O_H3_count_d5'], cmap='viridis', s=38, alpha=.8)\n"
             "axes[0].axvspan(50, 70, color='tab:red', alpha=.08)\n"
             "axes[0].set(xlabel='Molecular-axis azimuth (degree)', ylabel='Observed y', title='High-angle branch and local H3 environment')\n"
             "fig.colorbar(scatter, ax=axes[0], label='O_H3_count_d5')\n"
+            "tilt = axes[1].scatter(angle_plot['axis_angle_deg'], angle_plot['y'], c=angle_plot['axis_abs_elevation_deg_proxy'], cmap='plasma', s=38, alpha=.8)\n"
+            "axes[1].axvspan(50, 70, color='tab:red', alpha=.08)\n"
+            "axes[1].set(xlabel='Molecular-axis azimuth (degree)', ylabel='Observed y', title='Absolute out-of-plane tilt proxy')\n"
+            "fig.colorbar(tilt, ax=axes[1], label='absolute elevation proxy (degree)')\n"
             "model_labels = {\n"
             "    'RF_current_residualPLS5': 'RF',\n"
             "    'base_cyclic_xproc_pca8_matern12': 'Matérn 1/2',\n"
@@ -269,10 +273,10 @@ def notebook_one() -> nbf.NotebookNode:
             "plot_metrics['angle_bin'] = pd.Categorical(plot_metrics['angle_bin'], bin_order, ordered=True)\n"
             "for model, label in model_labels.items():\n"
             "    line = plot_metrics.loc[plot_metrics['model'].eq(model)].sort_values('angle_bin')\n"
-            "    axes[1].plot(bin_order, line['RMSE'], marker='o', label=label)\n"
-            "axes[1].set(xlabel='Molecular-axis azimuth bin (degree)', ylabel='OOF RMSE', title='Best method changes in the 50–70° regime')\n"
-            "axes[1].tick_params(axis='x', rotation=25)\n"
-            "axes[1].legend()\n"
+            "    axes[2].plot(bin_order, line['RMSE'], marker='o', label=label)\n"
+            "axes[2].set(xlabel='Molecular-axis azimuth bin (degree)', ylabel='OOF RMSE', title='Best method changes in the 50–70° regime')\n"
+            "axes[2].tick_params(axis='x', rotation=25)\n"
+            "axes[2].legend()\n"
             "plt.tight_layout(); plt.show()"""
         ),
         nbf.v4.new_markdown_cell(
@@ -282,8 +286,8 @@ def notebook_one() -> nbf.NotebookNode:
             "Linearの大幅低下は非線形性の必要性を、RBF-ARDの低下と長さ尺度上限到達は過剰パラメータ化を示します。"
             "最良GPRでもRFに負けるfoldと大誤差例があり、予測標準偏差と絶対誤差の対応も強くありません。"
             "分子軸10–50°ではMatérn 3/2が特に強い一方、50–70°ではRFが最良、GPR内では粗いMatérn 1/2が最良です。"
-            "この帯の低応答枝はH3近傍のMg/O密度・距離特徴と対応し、単なる角度データ不足ではなく、"
-            "角度と局所配位環境の相互作用・しきい値構造を示唆します。"
+            "この帯の低応答枝はほぼ面内で、H3近傍のMg/O密度・距離特徴とも対応します。単なる角度データ不足ではなく、"
+            "xy方位・面外傾き・局所配位環境の相互作用としきい値構造を示唆します。"
             "同じCVで候補と角度帯を選んでいるため、最終確定にはnested CVまたは独立データが必要です。"""
         ),
     ]
