@@ -1,0 +1,3 @@
+source,optimizer_restarts,corr2,R2,RMSE,MAE,corr2_difference_from_original,precision_note
+original_Untitled_ipynb,5,0.9941834358825807,0.9930,0.0002,,0,"R2 and RMSE were printed to 4 decimal places; MAE was not printed"
+chemistory_reimplementation,0,0.994186121991592,0.9932593620883828,0.0002033337551405,0.0001569266073131,0.0000026861090113,"full precision from results/dist_auto_kernel_comparison_metrics.csv"

@@ -134,23 +134,30 @@ def notebook_one() -> nbf.NotebookNode:
         ),
         nbf.v4.new_markdown_cell(
             """## C. GPR候補の固定10-fold比較\n\n"
-            "RBFではなくMatérn kernelを用い、baseのみ、周期角度、`X_proc` fold内PCAを比較します。"
-            "`R2` は相関係数の二乗ではなく、`1-SSE/SST` です。"""
+            "周期角度 + `X_proc` fold内PCA8を共通にし、Matérn 1/2、Matérn 3/2、等方RBF、"
+            "元の `dist_auto` と同型のRBF-ARDを比較します。すべて `signal × kernel + WhiteKernel` です。\n\n"
+            "`ARD_RESTARTS=0` でも帯域幅は第二種最尤法で最適化されます。元コードどおり5回の追加初期化を"
+            "行うには5へ変更してください（計算時間は大きく増えます）。`R2` は相関係数の二乗ではなく、"
+            "`1-SSE/SST` です。"""
         ),
         nbf.v4.new_code_cell(
-            """from chemistory_gpr.handoff import cross_validate_handoff, default_handoff_candidates\n\n"
+            """from chemistory_gpr.handoff import cross_validate_handoff, handoff_kernel_candidates\n\n"
+            "ARD_RESTARTS = 0  # 元のdist_autoと同じ追加初期化回数は5（かなり時間がかかります）\n"
             "candidate_metrics = []\n"
             "candidate_predictions = {}\n"
-            "for config in default_handoff_candidates():\n"
+            "for config in handoff_kernel_candidates(rbf_ard_restarts=ARD_RESTARTS):\n"
             "    print('Running', config.name)\n"
             "    prediction, metrics = cross_validate_handoff(data, config)\n"
             "    candidate_predictions[config.name] = prediction\n"
-            "    metrics = {k: v for k, v in metrics.items() if k != 'kernels'}\n"
+            "    metrics = {k: v for k, v in metrics.items() if k not in {'kernels','kernel_diagnostics'}}\n"
             "    candidate_metrics.append(metrics)\n"
             "    prediction.to_csv(RESULTS / f'gpr_handoff_oof_{config.name}.csv', index=False)\n"
             "metric_table = pd.DataFrame(candidate_metrics).sort_values('R2', ascending=False)\n"
             "metric_table.to_csv(RESULTS / 'gpr_handoff_metrics.csv', index=False)\n"
-            "display(metric_table[['model','R2','RMSE','MAE','coverage_95','width_95','NLPD']])"""
+            "metric_table['upper_bound_fraction'] = (\n"
+            "    metric_table['length_scales_at_upper_bound_total'] / metric_table['length_scales_total']\n"
+            ")\n"
+            "display(metric_table[['model','kernel_family','ard','optimizer_restarts','R2','corr2','RMSE','MAE','coverage_95','NLPD','upper_bound_fraction']])"""
         ),
         nbf.v4.new_code_cell(
             """# 最良候補のOOF予測と不確実性\n"
@@ -171,7 +178,9 @@ def notebook_one() -> nbf.NotebookNode:
         ),
         nbf.v4.new_markdown_cell(
             """### 読み方\n\n"
-            "既定データでは、`X_proc`をPCA8にして結合したMatérn GPRが最も良好です。"
+            "既定データではMatérn 3/2がわずかに最良で、等方RBFはほぼ同等です。"
+            "RBF-ARDは多数の長さ尺度が上限に達し、OOF性能も低下します。"
+            "170件に対して特徴別帯域幅を約120個推定するため、過剰パラメータ化になっています。"
             "95% coverageが名目値に近いかも同時に確認してください。"
             "候補選択自体も同じCV結果を見ているため、最終的な外部評価には新しい独立データが必要です。"""
         ),
@@ -227,36 +236,56 @@ def notebook_two() -> nbf.NotebookNode:
             "import plotly.graph_objects as go\n"
             "from IPython.display import display\n"
             "from chemistory_gpr.dist_auto import (\n"
-            "    DistAutoGPRConfig, fit_held_out_tag, leave_one_tag_out,\n"
-            "    load_dist_auto_data, make_grid, predict_grid,\n"
+            "    default_dist_auto_candidates, fit_held_out_tag, leave_one_tag_out,\n"
+            "    load_dist_auto_data, make_grid, predict_grid, standardized_tag_centroid_distances,\n"
+            "    summarize_dist_auto_metrics,\n"
             ")\n\n"
             "DATA_DIR = PROJECT_ROOT / 'data' / 'dist_auto'\n"
             "RESULTS = PROJECT_ROOT / 'results'\n"
             "RESULTS.mkdir(exist_ok=True)\n"
             "TEST_TAG = '10'\n"
-            "GRID_SIZE = 30"""
+            "GRID_SIZE = 30\n"
+            "ARD_RESTARTS = 0  # 元コードどおりは5。0でも第二種最尤法による最適化は実施\n"
+            "RUN_FULL_LOTO = False  # Trueで全tag×全kernelを再計算（Colabでは時間を要します）"""
         ),
         nbf.v4.new_markdown_cell("## A. データとtag外挿設定"),
         nbf.v4.new_code_cell(
             """data = load_dist_auto_data(DATA_DIR)\n"
             "summary = pd.DataFrame({'tag': data.tags, 'y': data.y}).groupby('tag', sort=False)['y'].agg(['count','mean','std','min','max'])\n"
             "print('common Xmat features =', len(data.feature_columns))\n"
-            "display(summary)"""
+            "display(summary)\n"
+            "centroid_distances = standardized_tag_centroid_distances(data)\n"
+            "display(centroid_distances.style.format('{:.3f}'))"""
         ),
         nbf.v4.new_markdown_cell(
-            """`tag=b` は目的変数の平均・分散が他tagと大きく異なります。"
+            """`tag=b` は目的変数の平均・分散に加え、標準化Xmat空間の重心も他tagから大きく離れます。"
+            "これは物理条件名を特定するものではありませんが、構造領域外挿であることを支持します。"
             "したがって、tag 10だけでなく全tagのleave-one-tag-out診断も後で確認します。"""
         ),
-        nbf.v4.new_markdown_cell("## B. 指定tagを完全にhold outしてGPRを評価"),
+        nbf.v4.new_markdown_cell(
+            """## B. 指定tagを完全にhold outしてカーネルを比較\n\n"
+            "前回モデルに加え、Xmatだけを訓練foldで標準化する元の前処理に揃えて、"
+            "Matérn 1/2、Matérn 3/2、等方RBF、RBF-ARDを比較します。"""
+        ),
         nbf.v4.new_code_cell(
-            """config = DistAutoGPRConfig(\n"
-            "    name='dist_auto_full_matern32', representation='full',\n"
-            "    include_xy=True, matern_nu=1.5, seed=123,\n"
-            ")\n"
-            "model, heldout, metrics = fit_held_out_tag(data, TEST_TAG, config)\n"
-            "display(pd.DataFrame([metrics]).drop(columns='kernel'))\n"
-            "print('optimized kernel:', metrics['kernel'])\n"
-            "heldout.to_csv(RESULTS / f'dist_auto_test_{TEST_TAG}_predictions.csv', index=False)"""
+            """candidates = default_dist_auto_candidates(rbf_ard_restarts=ARD_RESTARTS)\n"
+            "test_rows, candidate_models, candidate_heldout = [], {}, {}\n"
+            "for config in candidates:\n"
+            "    print('Running', config.name)\n"
+            "    fitted, prediction, metrics = fit_held_out_tag(data, TEST_TAG, config)\n"
+            "    candidate_models[config.name] = fitted\n"
+            "    candidate_heldout[config.name] = prediction\n"
+            "    test_rows.append(metrics)\n"
+            "comparison = pd.DataFrame(test_rows).sort_values('R2', ascending=False)\n"
+            "comparison.to_csv(RESULTS / f'dist_auto_test_{TEST_TAG}_kernel_comparison.csv', index=False)\n"
+            "display(comparison[['model','kernel_family','ard','optimizer_restarts','R2','corr2','RMSE','MAE','coverage_95','length_scales_at_upper_bound','length_scale_count']])\n"
+            "best_name = comparison.iloc[0]['model']\n"
+            "best_config = next(c for c in candidates if c.name == best_name)\n"
+            "model = candidate_models[best_name]\n"
+            "heldout = candidate_heldout[best_name]\n"
+            "heldout.to_csv(RESULTS / f'dist_auto_test_{TEST_TAG}_predictions.csv', index=False)\n"
+            "print('Selected for the surface:', best_name)\n"
+            "print('optimized kernel:', comparison.iloc[0]['optimized_kernel'])"""
         ),
         nbf.v4.new_code_cell(
             """fig, ax = plt.subplots(figsize=(5.5, 5))\n"
@@ -266,21 +295,45 @@ def notebook_two() -> nbf.NotebookNode:
             "ax.set(xlabel='Observed y', ylabel='Predicted y', title=f'Held-out tag {TEST_TAG}: mean ± 95%')\n"
             "plt.show()"""
         ),
-        nbf.v4.new_markdown_cell("## C. leave-one-tag-out診断"),
+        nbf.v4.new_markdown_cell(
+            """この比較ではhold-out tagの真値を見てカーネルを選んでいます。したがって最良値は候補比較値であり、"
+            "選択後の独立テスト値ではありません。次の新規tagまたは構造では、選んだカーネルを事前固定して評価してください。"""
+        ),
+        nbf.v4.new_markdown_cell(
+            """## C. leave-one-tag-out診断\n\n"
+            "全tag比較は高次元RBF-ARDのため時間がかかります。`RUN_FULL_LOTO=True` なら再計算し、"
+            "FalseならGitHubに保存済みの結果表を読みます。"""
+        ),
         nbf.v4.new_code_cell(
-            """group_oof, group_metrics = leave_one_tag_out(data, config)\n"
-            "display(group_metrics[['test_tag','R2','RMSE','MAE','corr2','coverage_95','width_95']])\n"
-            "group_oof.to_csv(RESULTS / 'dist_auto_leave_one_tag_out_predictions.csv', index=False)\n"
-            "group_metrics.to_csv(RESULTS / 'dist_auto_leave_one_tag_out_metrics.csv', index=False)"""
+            """if RUN_FULL_LOTO:\n"
+            "    all_predictions, all_metrics = [], []\n"
+            "    for config in candidates:\n"
+            "        print('Running all held-out tags:', config.name)\n"
+            "        group_oof, group_metrics = leave_one_tag_out(data, config, n_jobs=1)\n"
+            "        group_oof.insert(0, 'model', config.name)\n"
+            "        all_predictions.append(group_oof)\n"
+            "        all_metrics.append(group_metrics)\n"
+            "    pd.concat(all_predictions, ignore_index=True).to_csv(RESULTS / 'dist_auto_kernel_comparison_predictions.csv', index=False)\n"
+            "    group_metrics = pd.concat(all_metrics, ignore_index=True)\n"
+            "    group_metrics.to_csv(RESULTS / 'dist_auto_kernel_comparison_metrics.csv', index=False)\n"
+            "else:\n"
+            "    group_metrics = pd.read_csv(RESULTS / 'dist_auto_kernel_comparison_metrics.csv')\n"
+            "display(group_metrics[['model','test_tag','kernel_family','ard','R2','corr2','RMSE','MAE','coverage_95']])\n"
+            "group_summary = summarize_dist_auto_metrics(group_metrics)\n"
+            "group_summary.to_csv(RESULTS / 'dist_auto_kernel_comparison_summary.csv', index=False)\n"
+            "display(group_summary)"""
         ),
         nbf.v4.new_markdown_cell(
             """`corr2` は元コードとの比較用です。主指標は `R2=1-SSE/SST` です。"
-            "相関が高くても平均がずれると `corr2` は高いまま `R2` が悪化するので、両者を混同しないでください。"""
+            "相関が高くても平均がずれると `corr2` は高いまま `R2` が悪化するので、両者を混同しないでください。\n\n"
+            "保存済み結果ではRBF-ARDがtag 10–25の4条件でR²首位、等方RBFがtag別平均R²と全OOF R²で僅差の首位、"
+            "Matérn 3/2が95% coverageで首位です。tag bの最良R²は負のままで、カーネル変更だけでは解決していません。"""
         ),
         nbf.v4.new_markdown_cell("## D. 新しいxyグリッドの予測面と不確実性"),
         nbf.v4.new_code_cell(
             """grid, grid_features = make_grid(DATA_DIR, TEST_TAG, data.feature_columns, grid_size=GRID_SIZE)\n"
             "surface = predict_grid(model, grid, grid_features)\n"
+            "surface.insert(0, 'model', best_name)\n"
             "surface.to_csv(RESULTS / f'dist_auto_surface_{TEST_TAG}.csv', index=False)\n"
             "mean_pivot = surface.pivot(index='y', columns='x', values='pred_mean')\n"
             "std_pivot = surface.pivot(index='y', columns='x', values='pred_std')\n"

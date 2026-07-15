@@ -8,3 +8,5 @@ dist/
 results/generated_*.csv
 results/*.html
 data/dist_auto/Xmat_*_grid.csv
+/data/
+/data_archives/*.zip

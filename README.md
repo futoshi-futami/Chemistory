@@ -9,7 +9,7 @@
 
 上から順にセルを実行してください。1冊目は、必要ならColabへR本体と `randomForest`, `pls` を導入し、Pythonから `Rscript` を呼びます。ローカルWindowsの `Rscript.exe` パス指定は不要です。
 
-データの内容、fold内前処理、RF、GPRのカーネル、全指標の読み方は、[実験方法と結果の詳細（日本語）](docs/EXPERIMENTS_JA.md)にまとめています。
+データの内容、fold内前処理、RF、全指標の読み方は[実験方法と結果の詳細（日本語）](docs/EXPERIMENTS_JA.md)、RBF・Exponential・Matérn・White noiseの関数形と比較結果は[GPRカーネルの関数形と比較結果](docs/KERNELS_JA.md)にまとめています。
 
 ### Colabで `ModuleNotFoundError: chemistory_gpr` が出た場合
 
@@ -32,17 +32,18 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 4. 同梱された2種類のRF参照値（報告表と、Python→R実行出力）との差を表示します。
 5. GPRを同じ固定foldで比較します。標準化、分散ゼロ列除去、角度変換、X_procのPCAはすべて各訓練fold内だけでfitし、情報リークを防ぎます。
 
-既定GPRは次の構成です。
+GPRの共通特徴表現は次の構成です。
 
 - baseの角度をsin–cos表現へ変換
 - `X_proc`（3,102次元）を訓練fold内PCAで8次元へ圧縮
 - base特徴量とPCA scoreを結合
-- Matérn 3/2 + White noise kernel
+- Matérn 1/2、Matérn 3/2、等方RBF、RBF-ARDを同じ固定foldで比較
+- すべて `Constant × spatial kernel + White noise` とし、帯域幅を第二種最尤法で最適化
 - 予測平均だけでなく標準偏差、95%区間、coverage、NLPDも保存
 
 ## 2冊目で行うこと
 
-元の `dist_auto` と同じく、既定では `tag=10` をテスト、残り5 tagを訓練にします。共通Xmat特徴量の抽出順を固定し、Matérn GPRでテスト予測と新しいxyグリッドの予測面を作ります。
+元の `dist_auto` と同じく、既定では `tag=10` をテスト、残り5 tagを訓練にします。共通Xmat特徴量の抽出順を固定し、これまでのMatérn 3/2と、元ノートブックのRBF-ARD + White noiseを含む4カーネルでテスト予測を比較します。`tag=10` の点予測ではRBF-ARDが最良だったため、そのモデルで新しいxyグリッドの予測面を作ります。
 
 - 正しい決定係数 `1-SSE/SST` と、旧コードで使われていた相関係数の二乗を区別して表示
 - 予測平均、予測標準偏差、95%予測区間を出力
@@ -55,10 +56,12 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 ```bash
 python -m pip install -e .
-python scripts/run_gpr_handoff.py
-python scripts/run_dist_auto_gpr.py --test-tag 10
+python scripts/run_gpr_handoff.py --quick
+python scripts/run_dist_auto_gpr.py --test-tag 10 --quick --n-jobs 2
 python scripts/run_rf_reproduction.py  # Rscript + R packagesが必要
 ```
+
+`--quick` でも第二種最尤最適化は1回実行されます。元のRBF-ARD設定どおりランダム初期値から5回追加最適化する場合は `--quick` を外してください。ただし全foldでは計算時間が大きく増えます。
 
 テスト:
 
@@ -81,6 +84,10 @@ pytest -q
 
 `dist_auto` の `tag=b` は目的変数の平均と分散が他tagから大きく外れます。tag 10, 15, 20, 25への外挿が良好でも、全tagを一括したOOF指標は `tag=b` に強く左右されます。ノートブックでは総合値だけでなくtag別指標を必ず表示します。
 
+元PowerPointはH3/H6距離・C3→H3/C6→H6方向・角度の特徴量検討を説明していますが、`dist_auto` のtagと物理的実験条件の対応は記載していません。標準化Xmatのtag重心ではbが明確に外れますが、bが具体的に何の条件かを確定するには対応表が必要です。
+
+追加比較ではRBF-ARDがtag 10, 15, 20, 25の4条件でR²首位、等方RBFがtag別平均R²と全OOF R²で僅差の首位、Matérn 3/2が95% coverageで首位でした。tag bの最良R²はなお `-0.512663` です。したがって単一の総合首位ではなく、対象tagと点予測／不確実性の目的別に選びます。
+
 ## 検証済み結果
 
 GitHub Actions（R 4.6.1, randomForest 4.7.1.2, pls 2.9.0）でもPython/Rの双方を再実行済みです。
@@ -90,8 +97,11 @@ GitHub Actions（R 4.6.1, randomForest 4.7.1.2, pls 2.9.0）でもPython/Rの双
 | 受領コードのbase RF再現 | 0.853187 | 3.880222 | 1.655959 |
 | 受領コードのresidual PLS5 + RF再現 | 0.900572 | 3.193211 | 1.339298 |
 | GPR: cyclic angle + fold内X_proc PCA8 + Matérn 3/2 | 0.933874 | 2.604119 | 1.191774 |
-| dist_auto GPR: tag 10完全hold-out | 0.978301 | 0.000365 | 0.000296 |
+| GPR: 同じ特徴 + 等方RBF | 0.933505 | 2.611376 | 1.217731 |
+| GPR: 同じ特徴 + RBF-ARD | 0.872676 | 3.613510 | 1.264649 |
+| dist_auto previous Matérn 3/2: tag 10完全hold-out | 0.978301 | 0.000365 | 0.000296 |
+| dist_auto 元条件RBF-ARD: tag 10完全hold-out | **0.993259** | **0.000203** | **0.000157** |
 
 RFの再現値は同梱された `final_model_R_randomForest_from_python_metrics.csv` と表示精度内で完全一致しました。一方、`04_reference_RF_results.csv` の最終値（R2=0.908223, RMSE=3.067897, MAE=1.261954）とは異なります。Rの `sample.kind` を現行 `Rejection` と旧 `Rounding` の双方で実行しても同じ値だったため、この差は乱数方式では説明できません。報告表の作成時点では、現在同梱されたコード・設定・入力のいずれかが異なっていた可能性があります。
 
-結果の詳しい解釈は[実験方法と結果の詳細](docs/EXPERIMENTS_JA.md#5-gpr_handoff-の評価と結果)を参照してください。要点は、GPRの最大改善が角度のsin/cos化単独ではなく、`X_proc` のfold内PCA8追加で得られたこと、また `dist_auto` ではtag 10–25とtag bで外挿性能が大きく異なることです。
+結果の詳しい解釈は[実験方法と結果の詳細](docs/EXPERIMENTS_JA.md#5-gpr_handoff-の評価と結果)と[カーネル比較](docs/KERNELS_JA.md)を参照してください。要点は、`GPR_handoff` の最高R²はMatérn 3/2のままで等方RBFが僅差、RBF-ARDは過剰パラメータ化で低下した一方、`dist_auto` のtag 10では元のRBF-ARDが最高性能へ戻ったことです。ただしRBF-ARDの95% coverageは0.745であり、点予測の改善と不確実性較正は分けて評価する必要があります。

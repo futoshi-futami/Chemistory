@@ -10,9 +10,9 @@ import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import ConstantKernel, Matern, WhiteKernel
 from sklearn.preprocessing import StandardScaler
 
+from .kernels import build_signal_plus_white_kernel, fitted_kernel_diagnostics
 from .metrics import gaussian_regression_metrics
 
 
@@ -27,7 +27,13 @@ class HandoffGPRConfig:
     cyclic_angles: bool = True
     use_xproc: bool = True
     xproc_components: int = 8
+    kernel_family: str = "matern"
+    ard: bool = False
     matern_nu: float = 1.5
+    signal_bounds: tuple[float, float] = (1e-2, 1e3)
+    length_scale_bounds: tuple[float, float] = (1e-2, 1e3)
+    noise_bounds: tuple[float, float] = (1e-6, 1e1)
+    alpha: float = 1e-8
     seed: int = 123
     optimizer_restarts: int = 0
 
@@ -89,7 +95,7 @@ def transform_angles(base_features: pd.DataFrame, cyclic: bool) -> pd.DataFrame:
 
 
 class HandoffGPR:
-    """Fold-local preprocessing followed by an isotropic Matérn GPR."""
+    """Fold-local preprocessing followed by a configurable GPR."""
 
     def __init__(self, config: HandoffGPRConfig):
         self.config = config
@@ -120,14 +126,18 @@ class HandoffGPR:
             # Do not re-standardize PCA scores: their variances encode component importance.
             design = np.column_stack([design, scores])
 
-        kernel = (
-            ConstantKernel(1.0, (1e-2, 1e3))
-            * Matern(length_scale=1.0, length_scale_bounds=(1e-2, 1e3), nu=self.config.matern_nu)
-            + WhiteKernel(noise_level=1e-2, noise_level_bounds=(1e-6, 1e2))
+        kernel = build_signal_plus_white_kernel(
+            kernel_family=self.config.kernel_family,
+            n_features=design.shape[1],
+            ard=self.config.ard,
+            matern_nu=self.config.matern_nu,
+            signal_bounds=self.config.signal_bounds,
+            length_scale_bounds=self.config.length_scale_bounds,
+            noise_bounds=self.config.noise_bounds,
         )
         self.gpr_ = GaussianProcessRegressor(
             kernel=kernel,
-            alpha=1e-8,
+            alpha=self.config.alpha,
             normalize_y=True,
             n_restarts_optimizer=self.config.optimizer_restarts,
             random_state=self.config.seed,
@@ -166,6 +176,7 @@ def cross_validate_handoff(
     pred = np.full(n, np.nan)
     std = np.full(n, np.nan)
     kernels: dict[int, str] = {}
+    kernel_diagnostics: dict[int, dict[str, float | int | str]] = {}
     for fold in sorted(np.unique(data.fold_id)):
         train = data.fold_id != fold
         test = ~train
@@ -173,6 +184,10 @@ def cross_validate_handoff(
         model = HandoffGPR(fold_config).fit(data.base.loc[train], data.xproc.loc[train], data.y[train])
         pred[test], std[test] = model.predict(data.base.loc[test], data.xproc.loc[test], return_std=True)
         kernels[int(fold)] = str(model.gpr_.kernel_)
+        kernel_diagnostics[int(fold)] = fitted_kernel_diagnostics(
+            model.gpr_,
+            length_scale_bounds=config.length_scale_bounds,
+        )
 
     if np.isnan(pred).any() or np.isnan(std).any():
         raise RuntimeError("OOF predictions were not filled for every row")
@@ -195,16 +210,77 @@ def cross_validate_handoff(
             "cyclic_angles": config.cyclic_angles,
             "use_xproc": config.use_xproc,
             "xproc_components": config.xproc_components if config.use_xproc else 0,
-            "matern_nu": config.matern_nu,
+            "kernel_family": config.kernel_family,
+            "ard": config.ard,
+            "matern_nu": config.matern_nu if config.kernel_family == "matern" else np.nan,
+            "optimizer_restarts": config.optimizer_restarts,
+            "length_scale_count_per_fold": kernel_diagnostics[next(iter(kernel_diagnostics))][
+                "length_scale_count"
+            ],
+            "length_scales_at_upper_bound_total": int(
+                sum(int(item["length_scales_at_upper_bound"]) for item in kernel_diagnostics.values())
+            ),
+            "length_scales_total": int(
+                sum(int(item["length_scale_count"]) for item in kernel_diagnostics.values())
+            ),
+            "mean_log_marginal_likelihood": float(
+                np.mean([float(item["log_marginal_likelihood"]) for item in kernel_diagnostics.values()])
+            ),
             "kernels": kernels,
+            "kernel_diagnostics": kernel_diagnostics,
         }
     )
     return output, metrics
 
 
-def default_handoff_candidates(seed: int = 123) -> list[HandoffGPRConfig]:
-    """Small, interpretable candidate set used by the Colab notebook."""
+def handoff_kernel_candidates(
+    seed: int = 123,
+    *,
+    rbf_ard_restarts: int = 5,
+) -> list[HandoffGPRConfig]:
+    """Fair kernel comparison on the same cyclic-angle + fold-local PCA8 design."""
+    shared = {
+        "cyclic_angles": True,
+        "use_xproc": True,
+        "xproc_components": 8,
+        "seed": seed,
+    }
     return [
+        HandoffGPRConfig(
+            name="base_cyclic_xproc_pca8_matern12",
+            kernel_family="matern",
+            matern_nu=0.5,
+            **shared,
+        ),
+        HandoffGPRConfig(
+            name="base_cyclic_xproc_pca8_matern32",
+            kernel_family="matern",
+            matern_nu=1.5,
+            **shared,
+        ),
+        HandoffGPRConfig(
+            name="base_cyclic_xproc_pca8_rbf_iso",
+            kernel_family="rbf",
+            ard=False,
+            **shared,
+        ),
+        HandoffGPRConfig(
+            name="base_cyclic_xproc_pca8_rbf_ard_original",
+            kernel_family="rbf",
+            ard=True,
+            optimizer_restarts=rbf_ard_restarts,
+            **shared,
+        ),
+    ]
+
+
+def default_handoff_candidates(
+    seed: int = 123,
+    *,
+    rbf_ard_restarts: int = 5,
+) -> list[HandoffGPRConfig]:
+    """Feature ablations plus a controlled kernel comparison."""
+    ablations = [
         HandoffGPRConfig(
             name="base_raw_matern12",
             cyclic_angles=False,
@@ -219,12 +295,5 @@ def default_handoff_candidates(seed: int = 123) -> list[HandoffGPRConfig]:
             matern_nu=1.5,
             seed=seed,
         ),
-        HandoffGPRConfig(
-            name="base_cyclic_xproc_pca8_matern32",
-            cyclic_angles=True,
-            use_xproc=True,
-            xproc_components=8,
-            matern_nu=1.5,
-            seed=seed,
-        ),
     ]
+    return ablations + handoff_kernel_candidates(seed, rbf_ard_restarts=rbf_ard_restarts)
