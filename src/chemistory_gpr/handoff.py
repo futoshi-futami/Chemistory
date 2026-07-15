@@ -32,6 +32,7 @@ class HandoffGPRConfig:
     matern_nu: float = 1.5
     signal_bounds: tuple[float, float] = (1e-2, 1e3)
     length_scale_bounds: tuple[float, float] = (1e-2, 1e3)
+    rq_alpha_bounds: tuple[float, float] = (1e-2, 1e3)
     noise_bounds: tuple[float, float] = (1e-6, 1e1)
     alpha: float = 1e-8
     seed: int = 123
@@ -134,6 +135,7 @@ class HandoffGPR:
             signal_bounds=self.config.signal_bounds,
             length_scale_bounds=self.config.length_scale_bounds,
             noise_bounds=self.config.noise_bounds,
+            rq_alpha_bounds=self.config.rq_alpha_bounds,
         )
         self.gpr_ = GaussianProcessRegressor(
             kernel=kernel,
@@ -259,13 +261,31 @@ def handoff_kernel_candidates(
             **shared,
         ),
         HandoffGPRConfig(
+            name="base_cyclic_xproc_pca8_matern52",
+            kernel_family="matern",
+            matern_nu=2.5,
+            **shared,
+        ),
+        HandoffGPRConfig(
             name="base_cyclic_xproc_pca8_rbf_iso",
             kernel_family="rbf",
             ard=False,
             **shared,
         ),
         HandoffGPRConfig(
-            name="base_cyclic_xproc_pca8_rbf_ard_original",
+            name="base_cyclic_xproc_pca8_rational_quadratic",
+            kernel_family="rational_quadratic",
+            ard=False,
+            **shared,
+        ),
+        HandoffGPRConfig(
+            name="base_cyclic_xproc_pca8_linear",
+            kernel_family="linear",
+            ard=False,
+            **shared,
+        ),
+        HandoffGPRConfig(
+            name="base_cyclic_xproc_pca8_rbf_ard",
             kernel_family="rbf",
             ard=True,
             optimizer_restarts=rbf_ard_restarts,

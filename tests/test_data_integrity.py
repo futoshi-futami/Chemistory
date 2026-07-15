@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 from chemistory_gpr.dist_auto import load_dist_auto_data, standardized_tag_centroid_distances
 from chemistory_gpr.handoff import load_handoff_data
@@ -30,3 +31,15 @@ def test_dist_auto_tag_b_is_geometrically_outlying_in_xmat_space():
     mean_other_distance = distances.mask(np.eye(len(distances), dtype=bool)).mean(axis=1)
     assert mean_other_distance.idxmax() == "b"
     assert mean_other_distance["b"] > 2 * mean_other_distance.drop("b").max()
+
+
+def test_handoff_primary_report_prioritizes_rf_comparison_and_behavior():
+    comparison = pd.read_csv(ROOT / "results" / "gpr_handoff_primary_comparison.csv")
+    fold_metrics = pd.read_csv(ROOT / "results" / "gpr_handoff_all_kernel_fold_metrics.csv")
+    behavior = pd.read_csv(ROOT / "results" / "gpr_handoff_behavior_summary.csv").iloc[0]
+    assert comparison.iloc[0]["model"] == "base_cyclic_xproc_pca8_matern32"
+    assert comparison.iloc[0]["R2"] > comparison.loc[
+        comparison["source"] == "RF_reported_reference", "R2"
+    ].iloc[0]
+    assert len(fold_metrics) == 7 * 10
+    assert behavior["fraction_samples_gpr_lower_abs_error_than_rf"] > 0.5

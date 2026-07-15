@@ -1,107 +1,104 @@
-# Chemistory: RF再現とGPR検証（Google Colab対応）
+# GPR_handoff: RF基準とのGaussian Process比較（Google Colab対応）
 
-受領した `GPR_handoff.zip` と `dist_auto.zip` を、固定パスやWindows専用実行ファイルに依存せず実行できるよう整理したものです。
+このリポジトリの主目的は、`GPR_handoff.zip` の3つのCSVと指定済み固定10-foldを使い、受領したRF結果に対応するGaussian Process Regression（GPR）を複数カーネルで比較することです。`dist_auto.zip` はGPR実装とRBF-ARD設定の参考例であり、主解析・主モデル選択の対象ではありません。
 
-## Colabで開く
+## 主結果
 
-- [01: RF再現とGPR比較](https://colab.research.google.com/github/futoshi-futami/Chemistory/blob/main/notebooks/01_RF_and_GPR_handoff_Colab.ipynb)
-- [02: dist_autoへのGPR適用](https://colab.research.google.com/github/futoshi-futami/Chemistory/blob/main/notebooks/02_dist_auto_GPR_Colab.ipynb)
+170例の同じ固定10-foldで、GPRはbase特徴の角度をsin–cos化し、`X_proc` 3,102列を各訓練fold内でPCA 8成分へ圧縮してから学習しました。
 
-上から順にセルを実行してください。1冊目は、必要ならColabへR本体と `randomForest`, `pls` を導入し、Pythonから `Rscript` を呼びます。ローカルWindowsの `Rscript.exe` パス指定は不要です。
+| モデル | R² | RMSE | MAE | 95% coverage | NLPD |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| **GPR: Matérn 3/2** | **0.933874** | **2.604119** | 1.191774 | 0.952941 | 2.470919 |
+| GPR: 等方RBF | 0.933505 | 2.611376 | 1.217731 | 0.935294 | **2.425369** |
+| GPR: Rational Quadratic | 0.932962 | 2.622012 | 1.192167 | 0.941176 | 2.488398 |
+| GPR: Matérn 5/2 | 0.932828 | 2.624628 | 1.232611 | 0.947059 | 2.470277 |
+| GPR: Matérn 1/2（Exponential） | 0.926884 | 2.738293 | **1.176260** | 0.952941 | 2.484521 |
+| 受領RF報告値: RF + residual PLS5 | 0.908223 | 3.067897 | 1.261954 | — | — |
+| 現環境でのRF再実行値 | 0.900572 | 3.193211 | 1.339298 | — | — |
+| GPR: RBF-ARD | 0.872676 | 3.613510 | 1.264649 | 0.876471 | 5.221269 |
+| GPR: 線形 | 0.662463 | 5.883489 | 3.698088 | 0.935294 | 3.173079 |
 
-データの内容、fold内前処理、RF、全指標の読み方は[実験方法と結果の詳細（日本語）](docs/EXPERIMENTS_JA.md)、RBF・Exponential・Matérn・White noiseの関数形と比較結果は[GPRカーネルの関数形と比較結果](docs/KERNELS_JA.md)にまとめています。
+受領RF報告値と比べ、Matérn 3/2 GPRはR²が0.025651増加し、RMSEは15.1%、MAEは5.6%減少しました。したがって、現在の主候補はMatérn 3/2です。ただし上位4カーネルのR²差は0.0011以内で、等方RBFはNLPDが最良です。「Matérn 3/2だけが明確に優れる」という結果ではありません。
 
-### Colabで `ModuleNotFoundError: chemistory_gpr` が出た場合
+挙動診断では、Matérn 3/2 GPRはRFより7/10 foldでRMSEが小さく、170例中57.1%で絶対誤差が小さくなりました。一方、fold 1・6・7ではRFに負け、最悪fold 7のRMSEは4.234です。予測標準偏差と絶対誤差のSpearman相関も0.207に留まるため、全体の95% coverageが0.953でも、個々の大誤差を強く識別できているわけではありません。
 
-最新版では最初の初期化セルがclone、データ展開、editable install、import確認をまとめて実行します。まずランタイムを再起動し、最初から「すべてのセルを実行」してください。既存のColabを開いたまま直す場合は、次を実行してから続けられます。
+## Colab
 
-```python
-import sys, subprocess
-subprocess.run(
-    [sys.executable, "-m", "pip", "install", "-q", "-e", str(PROJECT_ROOT)],
-    check=True,
-)
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
-```
+- [主解析 — 01: RF再現とGPRカーネル比較](https://colab.research.google.com/github/futoshi-futami/Chemistory/blob/main/notebooks/01_RF_and_GPR_handoff_Colab.ipynb)
+- [参考付録 — 02: dist_autoへのGPR適用](https://colab.research.google.com/github/futoshi-futami/Chemistory/blob/main/notebooks/02_dist_auto_GPR_Colab.ipynb)
 
-## 1冊目で行うこと
+1冊目が本研究の中心です。必要ならColabへR本体と `randomForest`, `pls` を導入し、Pythonから `Rscript` を呼びます。ローカルWindows用の `Rscript.exe` パス指定は不要です。
 
-1. 3つのCSVの `file_key`、行順、欠損、固定10-foldを検査します。
-2. 元の R `randomForest` + `pls::plsr(method="simpls")` を再実行します。
-3. R 3.6で変更された `sample()` の仕様差を調べるため、`sample.kind="Rejection"` と旧仕様の `"Rounding"` の双方を実行します。
-4. 同梱された2種類のRF参照値（報告表と、Python→R実行出力）との差を表示します。
-5. GPRを同じ固定foldで比較します。標準化、分散ゼロ列除去、角度変換、X_procのPCAはすべて各訓練fold内だけでfitし、情報リークを防ぎます。
+最初の初期化セルがclone、データ展開、editable install、import確認を行います。`ModuleNotFoundError: chemistory_gpr` が出る場合はランタイムを再起動し、最初から「すべてのセルを実行」してください。
 
-GPRの共通特徴表現は次の構成です。
+## 主解析のデータと前処理
 
-- baseの角度をsin–cos表現へ変換
-- `X_proc`（3,102次元）を訓練fold内PCAで8次元へ圧縮
-- base特徴量とPCA scoreを結合
-- Matérn 1/2、Matérn 3/2、等方RBF、RBF-ARDを同じ固定foldで比較
-- すべて `Constant × spatial kernel + White noise` とし、帯域幅を第二種最尤法で最適化
-- 予測平均だけでなく標準偏差、95%区間、coverage、NLPDも保存
+入力は次の3ファイルです。
 
-## 2冊目で行うこと
+- `01_base_summary_first_angle.csv`: `file_key`, 目的変数 `y`, 111個のsummary・カテゴリ・角度特徴
+- `02_Xproc_matched.csv`: `file_key` と3,102個の高次元特徴
+- `03_cv_folds_seed123.csv`: RF比較にも使う固定10-fold番号
 
-元の `dist_auto` と同じく、既定では `tag=10` をテスト、残り5 tagを訓練にします。共通Xmat特徴量の抽出順を固定し、これまでのMatérn 3/2と、元ノートブックのRBF-ARD + White noiseを含む4カーネルでテスト予測を比較します。`tag=10` の点予測ではRBF-ARDが最良だったため、そのモデルで新しいxyグリッドの予測面を作ります。
+各foldで、テストfoldを一切使わず次をfitします。
 
-- 正しい決定係数 `1-SSE/SST` と、旧コードで使われていた相関係数の二乗を区別して表示
-- 予測平均、予測標準偏差、95%予測区間を出力
-- 平均最大点と95%下側信頼限界最大点を別々に表示
-- 6通りのleave-one-tag-out診断を実行し、外挿が難しいtagを検出
+1. baseの分散ゼロ列除去
+2. 3つの角度列をsin–cosへ変換
+3. baseと`X_proc`の標準化
+4. `X_proc`のPCA 8成分
+5. `Constant × spatial kernel + WhiteKernel` の第二種最尤推定
 
-回転用 `rotate_xyz.exe` はWindows専用で、ZIP内の `source.xyz` と `*-altered.xyz` は全バイトがNULでした。このためColab版の再現対象は、検証可能な `angle=0` と同梱済み座標CSVです。回転角付き予測を厳密に復元するには、元のCソースまたは正常な回転後XYZが別途必要です。
+GPRは `normalize_y=True` で、予測平均・標準偏差・50/80/90/95%区間・coverage・NLPDを保存します。RFの最終参照モデルはbase RFに`X_proc`のresidual PLS5補正を加えたものなので、入力情報源とfoldは共通ですが、圧縮法と回帰器は同一ではありません。
+
+## 比較したカーネル
+
+- Matérn 1/2（Exponential）: 粗い関数
+- Matérn 3/2: 中程度に滑らか
+- Matérn 5/2: さらに滑らか
+- RBF / Squared Exponential: 非常に滑らか
+- Rational Quadratic: 複数の長さ尺度を混ぜたRBF型
+- RBF-ARD: 特徴ごとに長さ尺度を持つ高自由度版
+- Linear / DotProduct: 非線形性の必要性を確認する対照
+
+関数形、White noise、第二種最尤法、最適化後の長さ尺度は[カーネルの関数形とhandoff結果](docs/KERNELS_JA.md)にまとめています。データ、RF再現、fold別挙動、大誤差例は[主実験の詳細](docs/EXPERIMENTS_JA.md)を参照してください。
 
 ## コマンドライン実行
 
 ```bash
 python -m pip install -e .
-python scripts/run_gpr_handoff.py --quick
-python scripts/run_dist_auto_gpr.py --test-tag 10 --quick --n-jobs 2
-python scripts/run_rf_reproduction.py  # Rscript + R packagesが必要
-```
-
-`--quick` でも第二種最尤最適化は1回実行されます。元のRBF-ARD設定どおりランダム初期値から5回追加最適化する場合は `--quick` を外してください。ただし全foldでは計算時間が大きく増えます。
-
-テスト:
-
-```bash
+python scripts/prepare_data.py
+python scripts/run_rf_reproduction.py       # RscriptとR packagesが必要
+python scripts/run_gpr_handoff.py --kernel-only --quick
+python scripts/summarize_handoff_results.py
 pytest -q
 ```
 
-## ディレクトリ
+`--quick` は高次元RBF-ARDの追加ランダム再始動を0回にしますが、第二種最尤最適化そのものは実行します。ARDは120個の長さ尺度の74.1%が上限へ達し、今回の170例では過剰パラメータ化しています。
 
-- `data/gpr_handoff`: 3入力CSVとRF参照値
-- `data/dist_auto`: 応答、xy、座標、事前計算Xmat
-- `data_archives`: GitHub用の圧縮データ（clone後に `scripts/prepare_data.py` が自動展開）
-- `src/chemistory_gpr`: 再利用可能なモデル・特徴量コード
-- `scripts`: Colab以外からの一括実行
-- `notebooks`: Colab用ノートブック
-- `results`: 検証済み出力
-- `source_reference`: 受領した元コードと説明（比較用）
+## 主要な出力
+
+- `results/gpr_handoff_primary_comparison.csv`: RF報告値・RF再実行値・全GPRの主比較
+- `results/gpr_handoff_metrics.csv`: GPRの全指標と最適化済みカーネル
+- `results/gpr_handoff_all_kernel_fold_metrics.csv`: カーネル×fold別の性能
+- `results/gpr_handoff_best_vs_rf_fold_metrics.csv`: 最良GPRとRFのfold別比較
+- `results/gpr_handoff_best_vs_rf_predictions.csv`: 同一試料上のGPR/RF予測と誤差
+- `results/gpr_handoff_largest_errors.csv`: GPRの絶対誤差上位15例
+- `results/gpr_handoff_behavior_summary.csv`: 改善量と不確実性診断の要約
+
+## RF再現値について
+
+現環境でのRF再実行値は、同梱されたPython→R出力と表示精度内で一致しました。一方、受領報告表の最終値 `R²=0.908223` と再実行値 `R²=0.900572` には差があります。Rの現行 `sample.kind="Rejection"` と旧 `"Rounding"` の双方で同じ結果だったため、乱数方式だけでは説明できません。報告表作成時のコード・パッケージ・入力のいずれかが現在の同梱物と異なった可能性があります。
 
 ## 評価上の注意
 
-`dist_auto` の `tag=b` は目的変数の平均と分散が他tagから大きく外れます。tag 10, 15, 20, 25への外挿が良好でも、全tagを一括したOOF指標は `tag=b` に強く左右されます。ノートブックでは総合値だけでなくtag別指標を必ず表示します。
+7つのGPRカーネルを同じ固定CV結果で比較しているため、Matérn 3/2の `R²=0.933874` は候補選択を含む探索的比較値です。最終性能として確定するには、Matérn 3/2を事前固定して新しい独立データで評価するか、内側でカーネルを選ぶnested CVが必要です。
 
-元PowerPointはH3/H6距離・C3→H3/C6→H6方向・角度の特徴量検討を説明していますが、`dist_auto` のtagと物理的実験条件の対応は記載していません。標準化Xmatのtag重心ではbが明確に外れますが、bが具体的に何の条件かを確定するには対応表が必要です。
+`dist_auto` のコードと結果は削除していませんが、`GPR_handoff` の最高モデルを決める根拠には使用しません。`dist_auto` は、RBF-ARDの再現方法、tag全体hold-out、予測面作成を確認するための参考付録です。
 
-追加比較ではRBF-ARDがtag 10, 15, 20, 25の4条件でR²首位、等方RBFがtag別平均R²と全OOF R²で僅差の首位、Matérn 3/2が95% coverageで首位でした。tag bの最良R²はなお `-0.512663` です。したがって単一の総合首位ではなく、対象tagと点予測／不確実性の目的別に選びます。
+## ディレクトリ
 
-## 検証済み結果
-
-GitHub Actions（R 4.6.1, randomForest 4.7.1.2, pls 2.9.0）でもPython/Rの双方を再実行済みです。
-
-| モデル | R2 | RMSE | MAE |
-| --- | ---: | ---: | ---: |
-| 受領コードのbase RF再現 | 0.853187 | 3.880222 | 1.655959 |
-| 受領コードのresidual PLS5 + RF再現 | 0.900572 | 3.193211 | 1.339298 |
-| GPR: cyclic angle + fold内X_proc PCA8 + Matérn 3/2 | 0.933874 | 2.604119 | 1.191774 |
-| GPR: 同じ特徴 + 等方RBF | 0.933505 | 2.611376 | 1.217731 |
-| GPR: 同じ特徴 + RBF-ARD | 0.872676 | 3.613510 | 1.264649 |
-| dist_auto previous Matérn 3/2: tag 10完全hold-out | 0.978301 | 0.000365 | 0.000296 |
-| dist_auto 元条件RBF-ARD: tag 10完全hold-out | **0.993259** | **0.000203** | **0.000157** |
-
-RFの再現値は同梱された `final_model_R_randomForest_from_python_metrics.csv` と表示精度内で完全一致しました。一方、`04_reference_RF_results.csv` の最終値（R2=0.908223, RMSE=3.067897, MAE=1.261954）とは異なります。Rの `sample.kind` を現行 `Rejection` と旧 `Rounding` の双方で実行しても同じ値だったため、この差は乱数方式では説明できません。報告表の作成時点では、現在同梱されたコード・設定・入力のいずれかが異なっていた可能性があります。
-
-結果の詳しい解釈は[実験方法と結果の詳細](docs/EXPERIMENTS_JA.md#5-gpr_handoff-の評価と結果)と[カーネル比較](docs/KERNELS_JA.md)を参照してください。要点は、`GPR_handoff` の最高R²はMatérn 3/2のままで等方RBFが僅差、RBF-ARDは過剰パラメータ化で低下した一方、`dist_auto` のtag 10では元のRBF-ARDが最高性能へ戻ったことです。ただしRBF-ARDの95% coverageは0.745であり、点予測の改善と不確実性較正は分けて評価する必要があります。
+- `data/gpr_handoff`: 主解析の3入力CSV、RF参照値、RF OOF予測
+- `notebooks/01_RF_and_GPR_handoff_Colab.ipynb`: 主Colab
+- `src/chemistory_gpr/handoff.py`: leakage-safeなGPR pipeline
+- `src/chemistory_gpr/kernels.py`: カーネル実装
+- `results/gpr_handoff_*`: 主解析結果
+- `data/dist_auto`, `notebooks/02_*`, `results/dist_auto_*`: 参考付録

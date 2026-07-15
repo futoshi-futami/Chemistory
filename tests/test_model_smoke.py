@@ -59,3 +59,21 @@ def test_handoff_kernel_candidates_include_isotropic_and_ard_rbf():
     signatures = {(item.kernel_family, item.ard) for item in candidates}
     assert ("rbf", False) in signatures
     assert ("rbf", True) in signatures
+    assert ("matern", False) in signatures
+    assert ("rational_quadratic", False) in signatures
+    assert ("linear", False) in signatures
+
+
+def test_additional_handoff_kernels_build_with_expected_parameters():
+    common = {
+        "n_features": 12,
+        "ard": False,
+        "matern_nu": 1.5,
+        "signal_bounds": (1e-2, 1e3),
+        "length_scale_bounds": (1e-2, 1e3),
+        "noise_bounds": (1e-6, 1e1),
+    }
+    rq = build_signal_plus_white_kernel(kernel_family="rational_quadratic", **common)
+    linear = build_signal_plus_white_kernel(kernel_family="linear", **common)
+    assert rq.k1.k2.alpha == 1.0
+    assert linear.k1.k2.sigma_0 == 1.0

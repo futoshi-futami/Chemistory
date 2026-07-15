@@ -20,6 +20,7 @@ from chemistory_gpr.handoff import (  # noqa: E402
     handoff_kernel_candidates,
     load_handoff_data,
 )
+from chemistory_gpr.handoff_report import build_handoff_report  # noqa: E402
 
 
 def main() -> None:
@@ -84,6 +85,9 @@ def main() -> None:
             ]
         ].to_string(index=False)
     )
+    paths = build_handoff_report(args.data_dir, args.output_dir)
+    print("\nPrimary RF-versus-GPR report:")
+    print(pd.read_csv(paths["comparison"])[["rank_R2", "source", "model", "R2", "RMSE", "MAE"]].to_string(index=False))
 
 
 if __name__ == "__main__":

@@ -17,7 +17,7 @@ jobs:
       - run: python -m pip install -e . pytest
       - run: python scripts/prepare_data.py
       - run: pytest -q
-      - run: python scripts/run_gpr_handoff.py --quick --candidate base_cyclic_xproc_pca8_rbf_iso
+      - run: python scripts/run_gpr_handoff.py --quick --candidate base_cyclic_xproc_pca8_matern32
       - run: python scripts/run_dist_auto_gpr.py --test-tag 10 --grid-size 10 --skip-group-cv --quick --candidate dist_auto_full_xmat_rbf_iso
 
   rf:
