@@ -234,6 +234,7 @@ def notebook_one() -> nbf.NotebookNode:
             "angle_metrics = pd.read_csv(angle_paths['method_metrics'])\n"
             "axis_associations = pd.read_csv(angle_paths['axis_feature_associations'])\n"
             "high_angle_contrasts = pd.read_csv(angle_paths['high_angle_structural_contrasts'])\n"
+            "series_summary = pd.read_csv(angle_paths['series_summary'])\n"
             "axis_winners = angle_winners.loc[angle_winners['angle_view'].eq('molecular_axis')].copy()\n"
             "bin_order = ['[-30,-10)', '[-10,10)', '[10,30)', '[30,50)', '[50,70]']\n"
             "axis_winners['angle_bin'] = pd.Categorical(axis_winners['angle_bin'], bin_order, ordered=True)\n"
@@ -244,7 +245,9 @@ def notebook_one() -> nbf.NotebookNode:
             "print('分子軸と最も強く対応する非角度特徴（探索的）')\n"
             "display(axis_associations.head(10))\n"
             "print('50–70°の低応答9例と残り32例の構造差（探索的）')\n"
-            "display(high_angle_contrasts.head(10))"""
+            "display(high_angle_contrasts.head(10))\n"
+            "print('高角度・低応答枝を含むfile_key prefix候補系列')\n"
+            "display(series_summary.loc[series_summary['n_high_angle_y_below_30'].gt(0)])"""
         ),
         nbf.v4.new_code_cell(
             """# 応答の角度依存をH3近傍環境・面外傾きで色分けし、右に角度帯別RMSEを表示\n"
@@ -280,6 +283,26 @@ def notebook_one() -> nbf.NotebookNode:
             "plt.tight_layout(); plt.show()"""
         ),
         nbf.v4.new_markdown_cell(
+            """## E. 候補構造系列を丸ごとhold outする補助評価\n\n"
+            "file_keyの最後のtokenを除いたprefixを候補series IDとみなし、同一prefixを訓練・テストへ分けない"
+            "GroupKFoldも確認します。これは命名規則から推定したgroupなので、物理的意味の確認が必要です。"
+            "指定固定foldは受領RFとの対応比較、こちらは未知系列外挿という別の問いです。"
+            "RのRFはこのgroup splitで未実行なので、ここではGPR同士だけを比較します。"""
+        ),
+        nbf.v4.new_code_cell(
+            """from chemistory_gpr.group_validation import run_prefix_group_comparison\n\n"
+            "RUN_PREFIX_GROUP_CV = False  # Trueで非ARD 6カーネルを再fit（数十秒程度）\n"
+            "if RUN_PREFIX_GROUP_CV:\n"
+            "    group_configs = [config for config in handoff_kernel_candidates(rbf_ard_restarts=0) if not config.ard]\n"
+            "    group_paths = run_prefix_group_comparison(data, group_configs, RESULTS)\n"
+            "    group_metrics = pd.read_csv(group_paths['metrics'])\n"
+            "else:\n"
+            "    group_metrics = pd.read_csv(RESULTS / 'gpr_handoff_group10_prefix_metrics.csv')\n"
+            "display(group_metrics[['model','kernel_family','matern_nu','R2','RMSE','MAE','coverage_95','NLPD']])\n"
+            "print('固定fold Matérn 3/2 R² = 0.933874: 既知系列内の補間')\n"
+            "print(f\"prefix-group最良R² = {group_metrics.iloc[0]['R2']:.6f}: 候補系列の外挿\")"""
+        ),
+        nbf.v4.new_markdown_cell(
             """### 読み方\n\n"
             "Matérn 3/2は受領RF報告値よりR²が約0.026高く、RMSEを約15%減らします。"
             "一方、等方RBF・Rational Quadratic・Matérn 5/2との差は非常に小さく、foldごとの首位も入れ替わります。"
@@ -288,6 +311,8 @@ def notebook_one() -> nbf.NotebookNode:
             "分子軸10–50°ではMatérn 3/2が特に強い一方、50–70°ではRFが最良、GPR内では粗いMatérn 1/2が最良です。"
             "この帯の低応答枝はほぼ面内で、H3近傍のMg/O密度・距離特徴とも対応します。単なる角度データ不足ではなく、"
             "xy方位・面外傾き・局所配位環境の相互作用としきい値構造を示唆します。"
+            "また、file_key prefixを丸ごと未知にすると全GPRが大幅に低下し、Rational Quadraticが相対首位へ変わります。"
+            "固定foldの高性能は既知系列内補間、group splitは未知系列外挿として区別してください。"
             "同じCVで候補と角度帯を選んでいるため、最終確定にはnested CVまたは独立データが必要です。"""
         ),
     ]

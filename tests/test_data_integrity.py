@@ -5,6 +5,7 @@ import pandas as pd
 
 from chemistory_gpr.dist_auto import load_dist_auto_data, standardized_tag_centroid_distances
 from chemistory_gpr.angle_report import derive_angle_coordinates
+from chemistory_gpr.group_validation import make_prefix_group_folds
 from chemistory_gpr.handoff import load_handoff_data
 
 
@@ -82,3 +83,26 @@ def test_handoff_high_angle_regime_favors_rf_and_rougher_gpr():
         & (metrics["model"] == "base_cyclic_xproc_pca8_matern32")
     ].iloc[0]
     assert matern32["SSE_share_within_view_model"] > 0.5
+
+
+def test_candidate_file_key_series_are_not_split_in_group_folds():
+    data = load_handoff_data(ROOT / "data" / "gpr_handoff")
+    folds = make_prefix_group_folds(data)
+    assert folds["series_prefix_candidate"].nunique() == 30
+    assert folds.groupby("series_prefix_candidate")["group_fold"].nunique().eq(1).all()
+    assert folds["group_fold"].value_counts().between(16, 18).all()
+
+
+def test_group_holdout_exposes_structure_series_extrapolation_gap():
+    metrics = pd.read_csv(ROOT / "results" / "gpr_handoff_group10_prefix_metrics.csv")
+    assert metrics.iloc[0]["kernel_family"] == "rational_quadratic"
+    matern32 = metrics.loc[metrics["model"].str.endswith("matern32")].iloc[0]
+    assert matern32["R2"] < 0
+
+    series = pd.read_csv(ROOT / "results" / "gpr_handoff_series_summary.csv")
+    low_branch = set(
+        series.loc[
+            series["n_high_angle_y_below_30"] > 0, "series_prefix_candidate"
+        ]
+    )
+    assert low_branch == {"0-0-2-16", "0-0-3-18"}

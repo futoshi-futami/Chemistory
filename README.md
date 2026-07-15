@@ -42,6 +42,23 @@
 
 ただし、角度帯と `y<30` は結果を見た後に定義した探索的診断で、特徴量同士も相関しています。「Mg/Oが近いから応答が低下する」という因果の確定ではありません。角度帯別の勝者を実運用するには、内側foldでregimeとモデルを選ぶnested CV、または新規構造での検証が必要です。詳細と次の物理仮説は[主実験の詳細](docs/EXPERIMENTS_JA.md#6-分子軸角度別の挙動と構造仮説)にまとめています。
 
+### 未知の構造系列への外挿は別問題
+
+ファイル名の最後のtokenだけを除いたprefixを「候補構造系列」とみなすと30系列あります。低ディラジカル性枝9例は `0-0-2-16` の3例と `0-0-3-18` の6例だけに集中し、指定固定foldは前者を3 fold、後者を5 foldへ分けています。同じ系列の近傍構造が訓練とテストの双方へ入るため、指定foldは主に系列内補間を測っています。これは受領RFとの対応比較には正しい分割ですが、未知系列への外挿評価ではありません。
+
+30 prefixを一切分割しない探索的10-fold GroupKFoldでは、GPRは次のように低下しました。
+
+| GPR | prefix-group R² | RMSE | MAE |
+| --- | ---: | ---: | ---: |
+| Rational Quadratic | **0.204954** | **9.029633** | **4.472770** |
+| Matérn 1/2 | 0.144438 | 9.366987 | 4.726188 |
+| Matérn 3/2 | −0.053689 | 10.395140 | 5.276053 |
+| Matérn 5/2 | −0.128628 | 10.758446 | 5.512620 |
+| RBF | −0.227962 | 11.221902 | 6.059563 |
+| Linear | −1.140907 | 14.817432 | 9.188284 |
+
+未知系列では複数尺度を混ぜるRational Quadraticと粗いMatérn 1/2が相対的に有利ですが、最良でもR² 0.205です。したがって現モデルは「既知系列内の補間」には高精度でも、「未知の分子構造系列への外挿」は未解決です。prefixの物理的意味を確認したうえで、実運用単位に対応するGroupKFoldを主外部評価にすべきです。このgroup評価ではRのRFをまだ再実行していないため、RF対GPRの結論は指定固定foldに限定します。
+
 ## Colab
 
 - [主解析 — 01: RF再現とGPRカーネル比較](https://colab.research.google.com/github/futoshi-futami/Chemistory/blob/main/notebooks/01_RF_and_GPR_handoff_Colab.ipynb)
@@ -90,6 +107,7 @@ python scripts/run_rf_reproduction.py       # RscriptとR packagesが必要
 python scripts/run_gpr_handoff.py --kernel-only --quick
 python scripts/summarize_handoff_results.py
 python scripts/analyze_handoff_angles.py
+python scripts/run_handoff_group_cv.py   # file_key prefixを候補系列とする補助評価
 pytest -q
 ```
 
@@ -107,6 +125,8 @@ pytest -q
 - `results/gpr_handoff_angle_winners.csv`: 分子軸・各方向・反平行ずれ別の局所首位
 - `results/gpr_handoff_angle_method_metrics.csv`: 角度帯×全モデルのRMSE、MAE、coverage、誤差寄与
 - `results/gpr_handoff_high_angle_structural_contrasts.csv`: 50–70°の低応答枝と他試料のMg/O特徴差
+- `results/gpr_handoff_series_summary.csv`: file_key prefix候補系列と低応答枝の集中
+- `results/gpr_handoff_group10_prefix_metrics.csv`: 候補系列を分割しないGPR補助評価
 
 ## RF再現値について
 

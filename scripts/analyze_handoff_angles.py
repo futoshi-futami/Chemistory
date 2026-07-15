@@ -29,6 +29,9 @@ def main() -> None:
     print(pd.read_csv(paths["axis_feature_associations"]).head(10).to_string(index=False))
     print("\nHigh-angle low-response structural contrasts (exploratory):")
     print(pd.read_csv(paths["high_angle_structural_contrasts"]).head(10).to_string(index=False))
+    print("\nCandidate file-key series containing the high-angle low-response branch:")
+    series = pd.read_csv(paths["series_summary"])
+    print(series.loc[series["n_high_angle_y_below_30"] > 0].to_string(index=False))
 
 
 if __name__ == "__main__":

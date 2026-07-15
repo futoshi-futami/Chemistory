@@ -52,6 +52,13 @@ def derive_angle_coordinates(base: pd.DataFrame) -> pd.DataFrame:
     result = pd.DataFrame(
         {
             "file_key": base["file_key"].astype(str),
+            "series_prefix_candidate": base["file_key"].astype(str).str.replace(
+                r"-[^-]+$", "", regex=True
+            ),
+            "series_step_candidate": pd.to_numeric(
+                base["file_key"].astype(str).str.extract(r"([^-]+)$")[0],
+                errors="coerce",
+            ),
             "y": base["y"].to_numpy(float),
             "C3H3_angle_deg_raw": np.degrees(theta3),
             "C3H3_reversed_deg": np.degrees(theta3_reversed),
@@ -351,6 +358,36 @@ def build_handoff_angle_report(data_dir: str | Path, results_dir: str | Path) ->
     axis_summary_path = results_dir / "gpr_handoff_axis_angle_data_summary.csv"
     axis_summary.to_csv(axis_summary_path, index=False)
 
+    fixed_fold_by_file = pd.read_csv(data_dir / "03_cv_folds_seed123.csv").set_index(
+        "file_key"
+    )["fold_seed123"]
+    series_rows: list[dict[str, object]] = []
+    for series, frame in angles.groupby("series_prefix_candidate", sort=False):
+        high = frame["axis_angle_deg_bin"].eq("[50,70]")
+        series_rows.append(
+            {
+                "series_prefix_candidate": series,
+                "n": int(len(frame)),
+                "n_distinct_fixed_folds": int(
+                    fixed_fold_by_file.loc[frame["file_key"]].nunique()
+                ),
+                "y_min": frame["y"].min(),
+                "y_max": frame["y"].max(),
+                "spearman_step_vs_y": frame["series_step_candidate"].corr(
+                    frame["y"], method="spearman"
+                ),
+                "axis_angle_mean_deg": frame["axis_angle_deg"].mean(),
+                "n_high_angle": int(high.sum()),
+                "n_high_angle_y_below_30": int((high & frame["y"].lt(30.0)).sum()),
+            }
+        )
+    series_summary = pd.DataFrame(series_rows).sort_values(
+        ["n_high_angle_y_below_30", "n", "series_prefix_candidate"],
+        ascending=[False, False, True],
+    )
+    series_summary_path = results_dir / "gpr_handoff_series_summary.csv"
+    series_summary.to_csv(series_summary_path, index=False)
+
     associations, contrasts = _structural_feature_diagnostics(base, angles)
     associations_path = results_dir / "gpr_handoff_axis_feature_associations.csv"
     associations.to_csv(associations_path, index=False)
@@ -407,6 +444,25 @@ def build_handoff_angle_report(data_dir: str | Path, results_dir: str | Path) ->
                     & angles["y"].ge(30.0),
                     "axis_abs_elevation_deg_proxy",
                 ].mean(),
+                "candidate_series_count": int(
+                    angles["series_prefix_candidate"].nunique()
+                ),
+                "high_angle_y_below_30_candidate_series_count": int(
+                    angles.loc[
+                        angles["axis_angle_deg_bin"].eq("[50,70]")
+                        & angles["y"].lt(30.0),
+                        "series_prefix_candidate",
+                    ].nunique()
+                ),
+                "high_angle_y_below_30_candidate_series": "|".join(
+                    sorted(
+                        angles.loc[
+                            angles["axis_angle_deg_bin"].eq("[50,70]")
+                            & angles["y"].lt(30.0),
+                            "series_prefix_candidate",
+                        ].unique()
+                    )
+                ),
             }
         ]
     )
@@ -417,6 +473,7 @@ def build_handoff_angle_report(data_dir: str | Path, results_dir: str | Path) ->
         "method_metrics": metrics_path,
         "winners": winners_path,
         "axis_data_summary": axis_summary_path,
+        "series_summary": series_summary_path,
         "axis_feature_associations": associations_path,
         "high_angle_structural_contrasts": contrasts_path,
         "coverage_diagnostics": coverage_path,

@@ -128,14 +128,32 @@ k(x,x')=k_{\rm axis}(\phi,\phi')+k_{\rm env}(z,z')
 
 のように分け、積項の有無をnested CVで比較すると、「角度によりMg/O環境効果が変わる」という仮説を直接検証できます。角度は `sin(phi), cos(phi)` で入力するか周期カーネルを使い、環境側には少数特徴へ絞ったMatérnを使うのが、全120次元ARDより安定な候補です。
 
+### 6.7 未知の候補構造系列では滑らかなカーネルほど不利
+
+file_keyの最後のtokenを除いた30 prefixを候補構造系列とみなし、同じprefixを訓練・テストへ分割しない10-fold GroupKFoldも探索的に実行しました。
+
+| GPR | prefix-group R² | RMSE |
+| --- | ---: | ---: |
+| Rational Quadratic | **0.204954** | **9.029633** |
+| Matérn 1/2 | 0.144438 | 9.366987 |
+| Matérn 3/2 | −0.053689 | 10.395140 |
+| Matérn 5/2 | −0.128628 | 10.758446 |
+| RBF | −0.227962 | 11.221902 |
+| Linear | −1.140907 | 14.817432 |
+
+系列内をランダムに分ける指定foldでは滑らかなMatérn 3/2・RBFが強い一方、系列を丸ごと未知にすると、多数の尺度を混ぜるRational Quadraticと最も粗いMatérn 1/2が相対的に上位へ変わります。これは、既知系列の局所補間は滑らかでも、系列間には大きな尺度差・regime差があるという説明と整合します。ただし最良R² 0.205なので、カーネルだけで未知系列外挿を解決できたとは言えません。
+
+prefixの物理的意味は資料に明記されていないため、このgroup splitは補助診断です。RのRFも同じgroup splitではまだ再実行していません。正式なモデル選択では、命名規則を確認した物理的groupを外側foldにし、その内側でカーネルを選びます。
+
 ## 7. モデル選択上の結論
 
-1. 現時点のhandoff主モデルはMatérn 3/2。
+1. 指定固定fold・系列内補間のhandoff主モデルはMatérn 3/2。
 2. 等方RBFは性能差が極小でNLPDが良いため、必ず併記する。
 3. Rational QuadraticとMatérn 5/2は上位モデルの滑らかさ感度分析として残す。
 4. Matérn 1/2はMAE重視に加え、高角度の粗いレジーム候補として残す。
 5. 線形とフルRBF-ARDは現設計の最終候補から外す。
-6. 同じCVでカーネルを選んだため、最終確定にはnested CVまたは独立データを用いる。
+6. 未知系列への外挿ではRational Quadraticを先頭候補に残すが、性能自体は未解決。
+7. 同じCVでカーネルを選んだため、最終確定にはnested group CVまたは独立系列データを用いる。
 
 機械可読結果は `results/gpr_handoff_primary_comparison.csv`、`gpr_handoff_metrics.csv`、`gpr_handoff_all_kernel_fold_metrics.csv`、挙動診断は `gpr_handoff_best_vs_rf_fold_metrics.csv` と `gpr_handoff_largest_errors.csv` にあります。
 
