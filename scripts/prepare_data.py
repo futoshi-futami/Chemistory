@@ -11,7 +11,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ARCHIVES = {
     "gpr_handoff_data.zip": (ROOT / "data" / "gpr_handoff", "01_base_summary_first_angle.csv"),
-    "dist_auto_data.zip": (ROOT / "data" / "dist_auto", "response.csv"),
 }
 
 

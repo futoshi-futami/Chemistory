@@ -1,0 +1,2 @@
+model,group_scheme,outer_splits,inner_splits,candidate_count,R2,RMSE,MAE,corr2,n,coverage_95,width_95,NLPD
+nested_inner_group_selected,trajectory,5,4,12,0.3344912106149769,8.261348680824183,4.5357868837292745,0.39522936678861537,170,,,

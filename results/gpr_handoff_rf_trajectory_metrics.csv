@@ -1,0 +1,5 @@
+evaluation_split,model,R2,RMSE,MAE,n,rng_sample_kind,r_version,randomForest_version,pls_version,trajectory_group_count,fold_count
+trajectory_group5,RF_R_base,0.0738937661040348,9.74550746531708,5.2037210480392,170,Rejection,R version 4.6.1 (2026-06-24),4.7.1.2,2.9.0,30,5
+trajectory_group5,RF_R_base_plus_residualPLS5,0.0259957903522694,9.99434809898317,5.45192127794188,170,Rejection,R version 4.6.1 (2026-06-24),4.7.1.2,2.9.0,30,5
+trajectory_group10,RF_R_base,-0.0461500651709561,10.3578841187047,5.30426614019608,170,Rejection,R version 4.6.1 (2026-06-24),4.7.1.2,2.9.0,30,10
+trajectory_group10,RF_R_base_plus_residualPLS5,-0.212621920016085,11.151589183956,5.72076525331463,170,Rejection,R version 4.6.1 (2026-06-24),4.7.1.2,2.9.0,30,10
