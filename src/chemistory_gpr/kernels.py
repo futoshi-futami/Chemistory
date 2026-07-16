@@ -69,7 +69,6 @@ def build_signal_plus_white_kernel(
     """Build ``signal variance × spatial kernel + white noise``.
 
     ``ard=True`` assigns one length scale to every transformed input feature.
-    This is the RBF-ARD form used in the original ``dist_auto`` notebook.
     """
     if n_features < 1:
         raise ValueError("n_features must be positive")

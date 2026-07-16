@@ -213,6 +213,49 @@ def build_gp_comparison(rf_metrics: pd.DataFrame, results_dir: Path) -> pd.DataF
     )
 
 
+def build_angle_model_comparison(
+    rf_angle_metrics: pd.DataFrame, results_dir: Path
+) -> pd.DataFrame:
+    """Compare final received RF and Product GP within each axis-angle band."""
+    rf = rf_angle_metrics.loc[
+        rf_angle_metrics["model"].eq("RF_R_base_plus_residualPLS5"),
+        ["evaluation_split", "angle_bin", "model", "R2", "RMSE", "MAE", "corr2", "n"],
+    ].copy()
+    rf["method"] = "received_two_stage_R_RF"
+
+    gp_parts: list[pd.DataFrame] = []
+    gp_sources = (
+        (
+            "trajectory_group5",
+            results_dir / "gpr_handoff_nested_group_candidate_angle_metrics.csv",
+        ),
+        (
+            "trajectory_group10",
+            results_dir / "gpr_handoff_group10_next_models_angle_metrics.csv",
+        ),
+    )
+    for split_name, path in gp_sources:
+        table = pd.read_csv(path)
+        table = table.loc[
+            table["candidate"].eq("axis_environment_interaction_matern32"),
+            ["candidate", "angle_bin", "R2", "RMSE", "MAE", "corr2", "n"],
+        ].rename(columns={"candidate": "model"})
+        table.insert(0, "evaluation_split", split_name)
+        table["method"] = "Product_Matern32_GP"
+        gp_parts.append(table)
+
+    comparison = pd.concat([rf, *gp_parts], ignore_index=True)
+    comparison["rank_RMSE_within_split_angle"] = comparison.groupby(
+        ["evaluation_split", "angle_bin"]
+    )["RMSE"].rank(method="min")
+    comparison["is_RMSE_winner"] = comparison[
+        "rank_RMSE_within_split_angle"
+    ].eq(1.0)
+    return comparison.sort_values(
+        ["evaluation_split", "angle_bin", "rank_RMSE_within_split_angle"]
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=Path, default=ROOT / "data" / "gpr_handoff")
@@ -263,6 +306,7 @@ def main() -> None:
         predictions, args.results_dir / "gpr_handoff_angle_features.csv"
     )
     comparison = build_gp_comparison(metrics, args.results_dir)
+    angle_comparison = build_angle_model_comparison(angle_metrics, args.results_dir)
 
     predictions.to_csv(
         args.output_dir / "gpr_handoff_rf_trajectory_predictions.csv", index=False
@@ -276,6 +320,10 @@ def main() -> None:
     )
     comparison.to_csv(
         args.output_dir / "gpr_handoff_trajectory_model_comparison.csv", index=False
+    )
+    angle_comparison.to_csv(
+        args.output_dir / "gpr_handoff_trajectory_angle_model_comparison.csv",
+        index=False,
     )
     print("\nTrajectory-held-out RF metrics:")
     print(metrics.to_string(index=False))

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the two source notebooks from reviewed Python cell strings."""
+"""Generate the source Colab notebook from reviewed Python cell strings."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def notebook_one() -> nbf.NotebookNode:
             """## 解析の全体像\n\n"
             "| 項目 | このノートブックでの定義 |\n"
             "| --- | --- |\n"
-            "| データ | `file_key` で対応する170行。111個のbase特徴と3,102個の `X_proc` |\n"
+            "| データ | `file_key` で対応する170行。元CSVのbase 111列（`file_key`,`y`を除く）と3,102列の `X_proc` |\n"
             "| 特徴量 | H3/H6近傍Mg/Oの数・距離・非対称性・原子種・C3→H3/C6→H6方向。"
             "方向7列は4個の分子軸特徴へ整理し、`X_proc` は各訓練fold内でPCA8へ圧縮 |\n"
             "| 予測対象 | 連続値 `y`。PowerPointではディラジカル性。単位と量子化学的定義は同梱CSVにない |\n"
@@ -72,7 +72,7 @@ def notebook_one() -> nbf.NotebookNode:
             "| モデル | 受領RF、全体定常GPR、加法GP、`軸 + 環境 + 軸×環境 + White` 相互作用GP、regime別expert |\n"
             "| 評価 | OOF R²、RMSE、MAE。GPRはcoverage、区間幅、NLPD、予測分散も評価 |\n"
             "| 結果 | 固定10-foldの相互作用GPはR² 0.973807、受領RFは0.908223。"
-            "strict nested trajectory-groupは0.334491 |\n"
+            "trajectory group5ではProduct GP 0.465545、受領二段RF 0.025996 |\n"
             "| 示唆 | 既知系列内の補間では軸×環境GPが有望。未知trajectory外挿には正式なgroupとraw 3D特徴が必要 |\n\n"
             "注意: 全データfitの3D面は説明用です。性能はOOFまたは外側groupのHeld-out予測だけから計算します。"""
         ),
@@ -306,24 +306,55 @@ def notebook_one() -> nbf.NotebookNode:
             "file_keyの最後のtokenを除いたprefixを候補series IDとみなし、同一prefixを訓練・テストへ分けない"
             "GroupKFoldも確認します。これは命名規則から推定したgroupなので、物理的意味の確認が必要です。"
             "指定固定foldは受領RFとの対応比較、こちらは未知系列外挿という別の問いです。"
-            "RのRFはこのgroup splitで未実行なので、ここではGPR同士だけを比較します。"""
+            "受領した二段R RF（base RF＋残差PLS5/RF）も、同じgroup5/group10で再fitして比較します。"
+            "高角度だけPython RFにしたmixtureとは別の評価です。\n\n"
+            "保存済み結果では二段RFはgroup5 `R²=0.025996`、group10 `−0.212622`、"
+            "Product GPは同じ分割で0.465545、0.365228でした。"
+            "残差補正は固定10-foldでは有効でもtrajectory外挿ではbase RFより悪化します。"""
         ),
         nbf.v4.new_code_cell(
             """from chemistory_gpr.group_validation import run_prefix_group_comparison\n\n"
             "RUN_PREFIX_GROUP_CV = False  # Trueで非ARD 6カーネルを再fit（数十秒程度）\n"
+            "RUN_TRAJECTORY_RF = False  # TrueでR RFをgroup5/group10に再fit（時間を要します）\n"
             "if RUN_PREFIX_GROUP_CV:\n"
             "    group_configs = [config for config in handoff_kernel_candidates(rbf_ard_restarts=0) if not config.ard]\n"
             "    group_paths = run_prefix_group_comparison(data, group_configs, RESULTS)\n"
             "    group_metrics = pd.read_csv(group_paths['metrics'])\n"
             "else:\n"
             "    group_metrics = pd.read_csv(RESULTS / 'gpr_handoff_group10_prefix_metrics.csv')\n"
+            "if RUN_TRAJECTORY_RF:\n"
+            "    if not shutil.which('Rscript'):\n"
+            "        raise RuntimeError('先にB節のR setupセルを実行してください')\n"
+            "    subprocess.run([sys.executable, 'scripts/run_rf_trajectory.py'], check=True)\n"
+            "trajectory_rf = pd.read_csv(RESULTS / 'gpr_handoff_rf_trajectory_metrics.csv')\n"
+            "trajectory_comparison = pd.read_csv(RESULTS / 'gpr_handoff_trajectory_model_comparison.csv')\n"
+            "trajectory_rf_angles = pd.read_csv(RESULTS / 'gpr_handoff_rf_trajectory_angle_metrics.csv')\n"
+            "trajectory_angle_comparison = pd.read_csv(RESULTS / 'gpr_handoff_trajectory_angle_model_comparison.csv')\n"
             "display(group_metrics[['model','kernel_family','matern_nu','R2','RMSE','MAE','coverage_95','NLPD']])\n"
+            "print('受領二段R RFのtrajectory Held-out')\n"
+            "display(trajectory_rf)\n"
+            "print('同じtrajectory splitでのRF/Product GP比較')\n"
+            "display(trajectory_comparison)\n"
+            "print('受領二段R RFの分子軸角度帯別結果')\n"
+            "display(trajectory_rf_angles.loc[trajectory_rf_angles['model'].eq('RF_R_base_plus_residualPLS5')])\n"
+            "print('角度帯ごとのRF/Product GP比較（RMSE winner）')\n"
+            "display(trajectory_angle_comparison.loc[trajectory_angle_comparison['is_RMSE_winner']])\n"
             "print('固定fold Matérn 3/2 R² = 0.933874: 既知系列内の補間')\n"
             "print(f\"prefix-group最良R² = {group_metrics.iloc[0]['R2']:.6f}: 候補系列の外挿\")"""
         ),
         nbf.v4.new_markdown_cell(
             """## F. 物理角度・相互作用GP・mixtureをnested group CVで比較\n\n"
-            "生角度7列を `sin(分子軸方位), cos(分子軸方位), 面外傾きproxy, 反平行ずれ` の4変数へ整理します。"
+            "元baseとは、`01_base_summary_first_angle.csv` の `file_key`,`y` を除いた111列です。"
+            "そのうち方向を重複表現する7列（C3H3/C6H6のxy角、角度差、そのsin/cos、3D/xy内積）を除き、"
+            "分子軸入力 `a` を次の4列へ整理します。\n\n"
+            "- `axis_azimuth_sin = sin(phi)`: 反平行な2本のC–H方向から定めた分子軸方位 `phi` のsin\n"
+            "- `axis_azimuth_cos = cos(phi)`: 同じ方位のcos（±180°境界を連続化）\n"
+            "- `axis_abs_elevation_rad_proxy`: 2本のC–Hベクトルのz成分積から得る面外傾きの絶対値proxy [rad]\n"
+            "- `antiparallel_deviation_rad`: C3→H3とC6→H6が180°からずれる大きさ [rad]\n\n"
+            "残り104個のbase候補から、各訓練foldで定数だった2列を除いた102列と、"
+            "3,102列の `X_proc` を同じ訓練fold内で標準化・PCA8圧縮した8列を合わせ、環境入力 `e`（110次元）とします。"
+            "よって実際のProduct GP設計行列は `a` 4次元＋`e` 110次元＝114次元です。"
+            "定数除外・標準化・PCAはtest側を見ずfoldごとにfitします。\n\n"
             "相互作用GPは `k_axis + k_environment + k_axis×k_environment + White` です。"
             "この積項は、全体Matérn 3/2の誤差が高角度へ集中し、同じ角度帯でもH3近傍Mg/Oと面外傾きによって応答が枝分かれしたため導入しました。"
             "加法項だけなら軸効果と環境効果は独立ですが、積項は軸も環境も似た試料にだけ強い共分散を与えます。"
@@ -392,7 +423,7 @@ def notebook_one() -> nbf.NotebookNode:
             "`geometry3d.py` は `file_key, atom_label, element, x, y, z` のlong表から、"
             "Mg/Oの分子軸方向への符号付き射影、軸からの垂直距離、H3/H6最短距離・近傍逆距離和、"
             "H3−H6非対称性を生成します。少なくともC3/H3/C6/H6と同じ9-cellのMg/O周期像が必要です。\n\n"
-            "現在のhandoff ZIPには170構造の元座標がなく、dist_autoの座標は別の330例なので、"
+            "現在のhandoff ZIPには170構造に対応する元原子座標がないため、"
             "3D新特徴は今回の性能表へ混ぜていません。"""
         ),
         nbf.v4.new_code_cell(
@@ -473,6 +504,8 @@ def notebook_one() -> nbf.NotebookNode:
             "相互作用GPは固定foldでR²=0.9738、RMSE=1.639となり、全体Matérn 3/2とRFを上回ります。"
             "改善は全角度帯で見られ、最適化でも加法項より軸×環境の積項が主に使われます。"
             "一方、trajectoryを丸ごと未知にする同じgroup10ではR²=0.365、strict nestedでは0.334です。"
+            "受領二段R RFは同じgroup10でR²=−0.213、group5で0.026となり、Product GPを下回りました。"
+            "角度帯別でもProduct GPはgroup10の5/5帯、group5の4/5帯で低RMSEですが、50–70°はなお最難関です。"
             "したがって、既知trajectory内補間では相互作用GPが新しい主候補ですが、未知系列外挿は未解決です。"
             "mixtureは高角度帯だけなら有利でも、境界・専門家の内側選択が外側foldで安定しません。"
             "file_keyの正式なtoken定義を確認して外側groupを固定し、次の独立系列では相互作用GPを事前指定して評価してください。"""
@@ -481,192 +514,10 @@ def notebook_one() -> nbf.NotebookNode:
     return nb
 
 
-def notebook_two() -> nbf.NotebookNode:
-    nb = nbf.v4.new_notebook()
-    nb["metadata"].update(
-        {
-            "colab": {"name": "02_dist_auto_GPR_Colab.ipynb", "provenance": []},
-            "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
-            "language_info": {"name": "python", "version": "3.11"},
-        }
-    )
-    nb["cells"] = [
-        nbf.v4.new_markdown_cell(
-            """# 02 — 参考付録: dist_autoへのGPR適用\n\n"
-            "このノートブックはGPR実装を確認する参考資料であり、主解析は01の `GPR_handoff` です。"
-            "元コードと同じく、1つのtagを丸ごとテストにして、残りtagから予測します。"
-            "既定は `TEST_TAG='10'` です。予測平均に加え、不確実性と95%区間を作ります。"""
-        ),
-        nbf.v4.new_code_cell(
-            """from pathlib import Path\n"
-            "import os, subprocess, sys\n\n"
-            "REPO_URL = 'https://github.com/futoshi-futami/Chemistory.git'\n"
-            "REPO_REF = os.environ.get('CHEMISTORY_REF', 'main')\n"
-            "FALLBACK_REF = 'agent/rbf-kernel-comparison'  # PR #2。mainへmerge後はfallback不要\n"
-            "cwd = Path.cwd()\n"
-            "if (cwd / 'pyproject.toml').exists():\n"
-            "    PROJECT_ROOT = cwd\n"
-            "elif (Path('/content/Chemistory') / 'pyproject.toml').exists():\n"
-            "    PROJECT_ROOT = Path('/content/Chemistory')\n"
-            "elif 'google.colab' in sys.modules:\n"
-            "    PROJECT_ROOT = Path('/content/Chemistory')\n"
-            "    subprocess.run(['git', 'clone', '--depth', '1', '--branch', REPO_REF, REPO_URL, str(PROJECT_ROOT)], check=True)\n"
-            "else:\n"
-            "    raise FileNotFoundError('Chemistory project rootでノートブックを実行してください。')\n"
-            "# PRのレビュー中も実行可能にし、merge後は自動的にmainを使います。\n"
-            "if 'google.colab' in sys.modules and not (PROJECT_ROOT / 'src/chemistory_gpr/kernels.py').exists():\n"
-            "    subprocess.run(['git', '-C', str(PROJECT_ROOT), 'fetch', '--depth', '1', 'origin', FALLBACK_REF], check=True)\n"
-            "    subprocess.run(['git', '-C', str(PROJECT_ROOT), 'checkout', '--detach', 'FETCH_HEAD'], check=True)\n"
-            "os.chdir(PROJECT_ROOT)\n"
-            "subprocess.run([sys.executable, 'scripts/prepare_data.py'], check=True)\n"
-            "subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '-e', str(PROJECT_ROOT)], check=True)\n"
-            "src_dir = str(PROJECT_ROOT / 'src')\n"
-            "if src_dir not in sys.path:\n"
-            "    sys.path.insert(0, src_dir)\n"
-            "import importlib\n"
-            "importlib.invalidate_caches()\n"
-            "import chemistory_gpr\n"
-            "print('PROJECT_ROOT =', PROJECT_ROOT)\n"
-            "print('chemistory_gpr =', chemistory_gpr.__file__)"""
-        ),
-        nbf.v4.new_code_cell(
-            """import numpy as np\n"
-            "import pandas as pd\n"
-            "import matplotlib.pyplot as plt\n"
-            "import plotly.graph_objects as go\n"
-            "from IPython.display import display\n"
-            "from chemistory_gpr.dist_auto import (\n"
-            "    default_dist_auto_candidates, fit_held_out_tag, leave_one_tag_out,\n"
-            "    load_dist_auto_data, make_grid, predict_grid, standardized_tag_centroid_distances,\n"
-            "    summarize_dist_auto_metrics,\n"
-            ")\n\n"
-            "DATA_DIR = PROJECT_ROOT / 'data' / 'dist_auto'\n"
-            "RESULTS = PROJECT_ROOT / 'results'\n"
-            "RESULTS.mkdir(exist_ok=True)\n"
-            "TEST_TAG = '10'\n"
-            "GRID_SIZE = 30\n"
-            "ARD_RESTARTS = 0  # 元コードどおりは5。0でも第二種最尤法による最適化は実施\n"
-            "RUN_FULL_LOTO = False  # Trueで全tag×全kernelを再計算（Colabでは時間を要します）"""
-        ),
-        nbf.v4.new_markdown_cell("## A. データとtag外挿設定"),
-        nbf.v4.new_code_cell(
-            """data = load_dist_auto_data(DATA_DIR)\n"
-            "summary = pd.DataFrame({'tag': data.tags, 'y': data.y}).groupby('tag', sort=False)['y'].agg(['count','mean','std','min','max'])\n"
-            "print('common Xmat features =', len(data.feature_columns))\n"
-            "display(summary)\n"
-            "centroid_distances = standardized_tag_centroid_distances(data)\n"
-            "display(centroid_distances.style.format('{:.3f}'))"""
-        ),
-        nbf.v4.new_markdown_cell(
-            """`tag=b` は目的変数の平均・分散に加え、標準化Xmat空間の重心も他tagから大きく離れます。"
-            "これは物理条件名を特定するものではありませんが、構造領域外挿であることを支持します。"
-            "したがって、tag 10だけでなく全tagのleave-one-tag-out診断も後で確認します。"""
-        ),
-        nbf.v4.new_markdown_cell(
-            """## B. 指定tagを完全にhold outしてカーネルを比較\n\n"
-            "前回モデルに加え、Xmatだけを訓練foldで標準化する元の前処理に揃えて、"
-            "Matérn 1/2、Matérn 3/2、等方RBF、RBF-ARDを比較します。"""
-        ),
-        nbf.v4.new_code_cell(
-            """candidates = default_dist_auto_candidates(rbf_ard_restarts=ARD_RESTARTS)\n"
-            "test_rows, candidate_models, candidate_heldout = [], {}, {}\n"
-            "for config in candidates:\n"
-            "    print('Running', config.name)\n"
-            "    fitted, prediction, metrics = fit_held_out_tag(data, TEST_TAG, config)\n"
-            "    candidate_models[config.name] = fitted\n"
-            "    candidate_heldout[config.name] = prediction\n"
-            "    test_rows.append(metrics)\n"
-            "comparison = pd.DataFrame(test_rows).sort_values('R2', ascending=False)\n"
-            "comparison.to_csv(RESULTS / f'dist_auto_test_{TEST_TAG}_kernel_comparison.csv', index=False)\n"
-            "display(comparison[['model','kernel_family','ard','optimizer_restarts','R2','corr2','RMSE','MAE','coverage_95','length_scales_at_upper_bound','length_scale_count']])\n"
-            "best_name = comparison.iloc[0]['model']\n"
-            "best_config = next(c for c in candidates if c.name == best_name)\n"
-            "model = candidate_models[best_name]\n"
-            "heldout = candidate_heldout[best_name]\n"
-            "heldout.to_csv(RESULTS / f'dist_auto_test_{TEST_TAG}_predictions.csv', index=False)\n"
-            "print('Selected for the surface:', best_name)\n"
-            "print('optimized kernel:', comparison.iloc[0]['optimized_kernel'])"""
-        ),
-        nbf.v4.new_code_cell(
-            """fig, ax = plt.subplots(figsize=(5.5, 5))\n"
-            "ax.errorbar(heldout['y'], heldout['pred_mean'], yerr=1.96*heldout['pred_std'], fmt='o', ms=4, alpha=.7)\n"
-            "lims = [min(heldout['y'].min(), heldout['lower_95'].min()), max(heldout['y'].max(), heldout['upper_95'].max())]\n"
-            "ax.plot(lims, lims, '--', color='black')\n"
-            "ax.set(xlabel='Observed y', ylabel='Predicted y', title=f'Held-out tag {TEST_TAG}: mean ± 95%')\n"
-            "plt.show()"""
-        ),
-        nbf.v4.new_markdown_cell(
-            """この比較ではhold-out tagの真値を見てカーネルを選んでいます。したがって最良値は候補比較値であり、"
-            "選択後の独立テスト値ではありません。次の新規tagまたは構造では、選んだカーネルを事前固定して評価してください。"""
-        ),
-        nbf.v4.new_markdown_cell(
-            """## C. leave-one-tag-out診断\n\n"
-            "全tag比較は高次元RBF-ARDのため時間がかかります。`RUN_FULL_LOTO=True` なら再計算し、"
-            "FalseならGitHubに保存済みの結果表を読みます。"""
-        ),
-        nbf.v4.new_code_cell(
-            """if RUN_FULL_LOTO:\n"
-            "    all_predictions, all_metrics = [], []\n"
-            "    for config in candidates:\n"
-            "        print('Running all held-out tags:', config.name)\n"
-            "        group_oof, group_metrics = leave_one_tag_out(data, config, n_jobs=1)\n"
-            "        group_oof.insert(0, 'model', config.name)\n"
-            "        all_predictions.append(group_oof)\n"
-            "        all_metrics.append(group_metrics)\n"
-            "    pd.concat(all_predictions, ignore_index=True).to_csv(RESULTS / 'dist_auto_kernel_comparison_predictions.csv', index=False)\n"
-            "    group_metrics = pd.concat(all_metrics, ignore_index=True)\n"
-            "    group_metrics.to_csv(RESULTS / 'dist_auto_kernel_comparison_metrics.csv', index=False)\n"
-            "else:\n"
-            "    group_metrics = pd.read_csv(RESULTS / 'dist_auto_kernel_comparison_metrics.csv')\n"
-            "display(group_metrics[['model','test_tag','kernel_family','ard','R2','corr2','RMSE','MAE','coverage_95']])\n"
-            "group_summary = summarize_dist_auto_metrics(group_metrics)\n"
-            "group_summary.to_csv(RESULTS / 'dist_auto_kernel_comparison_summary.csv', index=False)\n"
-            "display(group_summary)"""
-        ),
-        nbf.v4.new_markdown_cell(
-            """`corr2` は元コードとの比較用です。主指標は `R2=1-SSE/SST` です。"
-            "相関が高くても平均がずれると `corr2` は高いまま `R2` が悪化するので、両者を混同しないでください。\n\n"
-            "保存済み結果ではRBF-ARDがtag 10–25の4条件でR²首位、等方RBFがtag別平均R²と全OOF R²で僅差の首位、"
-            "Matérn 3/2が95% coverageで首位です。tag bの最良R²は負のままで、カーネル変更だけでは解決していません。"""
-        ),
-        nbf.v4.new_markdown_cell("## D. 新しいxyグリッドの予測面と不確実性"),
-        nbf.v4.new_code_cell(
-            """grid, grid_features = make_grid(DATA_DIR, TEST_TAG, data.feature_columns, grid_size=GRID_SIZE)\n"
-            "surface = predict_grid(model, grid, grid_features)\n"
-            "surface.insert(0, 'model', best_name)\n"
-            "surface.to_csv(RESULTS / f'dist_auto_surface_{TEST_TAG}.csv', index=False)\n"
-            "mean_pivot = surface.pivot(index='y', columns='x', values='pred_mean')\n"
-            "std_pivot = surface.pivot(index='y', columns='x', values='pred_std')\n"
-            "fig = go.Figure(go.Surface(\n"
-            "    x=mean_pivot.columns, y=mean_pivot.index, z=mean_pivot.to_numpy(),\n"
-            "    surfacecolor=std_pivot.to_numpy(), colorbar={'title':'predictive std'},\n"
-            "))\n"
-            "fig.update_layout(title=f'GPR mean surface — held-out tag {TEST_TAG}', scene={'xaxis_title':'x','yaxis_title':'y','zaxis_title':'prediction'})\n"
-            "fig.show()"""
-        ),
-        nbf.v4.new_code_cell(
-            """fig = go.Figure(go.Heatmap(x=std_pivot.columns, y=std_pivot.index, z=std_pivot.to_numpy(), colorbar={'title':'std'}))\n"
-            "fig.update_layout(title='Predictive uncertainty', xaxis_title='x', yaxis_title='y')\n"
-            "fig.show()\n\n"
-            "best_mean = surface.loc[surface['pred_mean'].idxmax(), ['x','y','pred_mean','pred_std','lower_95']]\n"
-            "best_lcb = surface.loc[surface['lower_confidence_bound'].idxmax(), ['x','y','pred_mean','pred_std','lower_confidence_bound']]\n"
-            "print('Maximum predictive mean:\\n', best_mean.to_string())\n"
-            "print('\\nMaximum 95% lower confidence bound:\\n', best_lcb.to_string())"""
-        ),
-        nbf.v4.new_markdown_cell(
-            """### 回転角について\n\n"
-            "このColab版は検証可能な `angle=0` を対象にします。受領ZIPの `rotate_xyz.exe` はWindows専用で、"
-            "同梱の `source.xyz` と `*-altered.xyz` はNULのみでした。"
-            "非ゼロ回転を厳密に追加するには、回転プログラムのCソースまたは正常な回転前後XYZが必要です。"""
-        ),
-    ]
-    return nb
-
 
 def main() -> None:
     notebooks = [
         (notebook_one(), OUT / "01_RF_and_GPR_handoff_Colab.ipynb"),
-        (notebook_two(), OUT / "02_dist_auto_GPR_Colab.ipynb"),
     ]
     for notebook, path in notebooks:
         # The long cells above use visually aligned adjacent string fragments.

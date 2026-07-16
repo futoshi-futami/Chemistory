@@ -3,10 +3,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from chemistory_gpr.dist_auto import load_dist_auto_data, standardized_tag_centroid_distances
 from chemistory_gpr.angle_report import derive_angle_coordinates
 from chemistory_gpr.group_validation import make_prefix_group_folds
-from chemistory_gpr.handoff import load_handoff_data
+from chemistory_gpr.handoff import (
+    HandoffFeatureTransformer,
+    HandoffGPRConfig,
+    load_handoff_data,
+)
 from chemistory_gpr.physical_features import (
     COMPACT_AXIS_COLUMNS,
     candidate_group_labels,
@@ -24,22 +27,6 @@ def test_handoff_alignment_and_shape():
     assert data.base.shape == (170, 113)
     assert data.xproc.shape == (170, 3103)
     assert np.bincount(data.fold_id)[1:].tolist() == [17] * 10
-
-
-def test_dist_auto_alignment_and_shape():
-    data = load_dist_auto_data(ROOT / "data" / "dist_auto")
-    assert data.X.shape == (330, 309)
-    assert len(data.feature_columns) == 309
-    assert set(data.tags) == {"a", "b", "10", "15", "20", "25"}
-    assert not data.X.isna().any().any()
-
-
-def test_dist_auto_tag_b_is_geometrically_outlying_in_xmat_space():
-    data = load_dist_auto_data(ROOT / "data" / "dist_auto")
-    distances = standardized_tag_centroid_distances(data)
-    mean_other_distance = distances.mask(np.eye(len(distances), dtype=bool)).mean(axis=1)
-    assert mean_other_distance.idxmax() == "b"
-    assert mean_other_distance["b"] > 2 * mean_other_distance.drop("b").max()
 
 
 def test_handoff_primary_report_prioritizes_rf_comparison_and_behavior():
@@ -143,6 +130,71 @@ def test_compact_axis_replaces_redundant_angles_with_four_coordinates():
     )
 
 
+def test_product_gp_partition_is_four_axis_plus_110_environment_dimensions():
+    data = load_handoff_data(ROOT / "data" / "gpr_handoff")
+    compact = compact_axis_base(data.base)
+    transformer = HandoffFeatureTransformer(
+        HandoffGPRConfig(cyclic_angles=False, use_xproc=True, xproc_components=8)
+    )
+    design = transformer.fit_transform(compact, data.xproc)
+    axis = [
+        column
+        for column in transformer.base_selected_columns_
+        if column in COMPACT_AXIS_COLUMNS
+    ]
+    environment_base = [
+        column
+        for column in transformer.base_selected_columns_
+        if column not in COMPACT_AXIS_COLUMNS
+    ]
+    assert axis == list(COMPACT_AXIS_COLUMNS)
+    assert len(environment_base) == 102
+    assert design.shape == (170, 114)
+    assert set(transformer.base_columns_) - set(transformer.base_selected_columns_) == {
+        "first_invd_LH3_atomOther",
+        "first_invd_LH6_atomOther",
+    }
+
+
+def test_received_rf_trajectory_results_use_group_holdout_and_match_gp_comparison():
+    metrics = pd.read_csv(ROOT / "results" / "gpr_handoff_rf_trajectory_metrics.csv")
+    final = metrics.loc[metrics["model"].eq("RF_R_base_plus_residualPLS5")].set_index(
+        "evaluation_split"
+    )
+    assert np.isclose(final.loc["trajectory_group5", "R2"], 0.0259956, atol=1e-6)
+    assert np.isclose(final.loc["trajectory_group10", "R2"], -0.212622, atol=1e-6)
+
+    predictions = pd.read_csv(
+        ROOT / "results" / "gpr_handoff_rf_trajectory_predictions.csv"
+    )
+    assert predictions.groupby("evaluation_split")["file_key"].nunique().eq(170).all()
+    assert predictions.groupby(
+        ["evaluation_split", "trajectory_group_candidate"]
+    )["fold"].nunique().eq(1).all()
+
+    comparison = pd.read_csv(
+        ROOT / "results" / "gpr_handoff_trajectory_model_comparison.csv"
+    )
+    for split_name in ("trajectory_group5", "trajectory_group10"):
+        part = comparison.loc[comparison["evaluation_split"].eq(split_name)]
+        gp_r2 = part.loc[
+            part["model"].eq("axis_environment_interaction_matern32"), "R2"
+        ].iloc[0]
+        rf_r2 = part.loc[
+            part["model"].eq("RF_R_base_plus_residualPLS5"), "R2"
+        ].iloc[0]
+        assert gp_r2 > rf_r2
+
+    angle = pd.read_csv(
+        ROOT / "results" / "gpr_handoff_trajectory_angle_model_comparison.csv"
+    )
+    gp_wins = angle.loc[
+        angle["model"].eq("axis_environment_interaction_matern32")
+        & angle["is_RMSE_winner"]
+    ].groupby("evaluation_split").size()
+    assert gp_wins.to_dict() == {"trajectory_group10": 5, "trajectory_group5": 4}
+
+
 def test_interaction_gp_improves_fixed_and_grouped_predictions():
     fixed = pd.read_csv(ROOT / "results" / "gpr_handoff_fixed10_next_models_metrics.csv")
     group = pd.read_csv(ROOT / "results" / "gpr_handoff_group10_next_models_metrics.csv")
@@ -185,3 +237,6 @@ def test_saved_interaction_surfaces_include_mean_variance_and_reference_metadata
     assert (
         ROOT / "figures" / "gpr_handoff_molecular_axis_uncertainty_animation.html"
     ).stat().st_size > 10_000
+    assert (
+        ROOT / "figures" / "gpr_handoff_static_overview.png"
+    ).stat().st_size > 100_000

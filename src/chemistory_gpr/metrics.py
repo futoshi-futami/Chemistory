@@ -1,4 +1,4 @@
-"""Metrics shared by the handoff and dist_auto experiments."""
+"""Metrics for the handoff RF/GPR experiments."""
 
 from __future__ import annotations
 
