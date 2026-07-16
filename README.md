@@ -40,16 +40,16 @@ e:102\text{（環境base）}+8\text{（PCA）}=110\text{次元}.
 
 ## 3. 比較したカーネル
 
-標準化後の距離を (r)、White noiseを (k_W(x,x')=\sigma_n^2\mathbf 1[x=x']) と書きます。各定常GPRは「下表の信号カーネル＋White noise」です。
+標準化後の距離を $r$、White noiseを $k_W(x,x')=\sigma_n^2\mathbf 1[x=x']$ と書きます。各定常GPRは「下表の信号カーネル＋White noise」です。
 
 | 名前 | 信号カーネル | 関数のイメージ |
 | --- | --- | --- |
-| Matérn 1/2（Exponential） | (k_{M12}=\sigma_f^2e^{-r}) | 急な変化を許す |
-| Matérn 3/2 | (k_{M32}=\sigma_f^2(1+\sqrt3r)e^{-\sqrt3r}) | 中程度に滑らか |
-| Matérn 5/2 | (k_{M52}=\sigma_f^2(1+\sqrt5r+5r^2/3)e^{-\sqrt5r}) | Matérn 3/2より滑らか |
-| RBF / Squared Exponential | (k_{RBF}=\sigma_f^2e^{-r^2/2}) | 非常に滑らか |
-| Rational Quadratic | (k_{RQ}=\sigma_f^2(1+r^2/(2\alpha))^{-\alpha}) | 複数のRBF尺度の混合 |
-| Linear / DotProduct | (k_{Lin}=\sigma_f^2(\sigma_0^2+x^\top x')) | 線形の対照 |
+| Matérn 1/2（Exponential） | $k_{M12}=\sigma_f^2e^{-r}$ | 急な変化を許す |
+| Matérn 3/2 | $k_{M32}=\sigma_f^2(1+\sqrt3r)e^{-\sqrt3r}$ | 中程度に滑らか |
+| Matérn 5/2 | $k_{M52}=\sigma_f^2(1+\sqrt5r+5r^2/3)e^{-\sqrt5r}$ | Matérn 3/2より滑らか |
+| RBF / Squared Exponential | $k_{RBF}=\sigma_f^2e^{-r^2/2}$ | 非常に滑らか |
+| Rational Quadratic | $k_{RQ}=\sigma_f^2(1+r^2/(2\alpha))^{-\alpha}$ | 複数のRBF尺度の混合 |
+| Linear / DotProduct | $k_{Lin}=\sigma_f^2(\sigma_0^2+x^\top x')$ | 線形の対照 |
 
 信号分散、長さ尺度、White noiseなどは、各訓練foldの対数周辺尤度を最大化する第二種最尤法で推定します。
 
