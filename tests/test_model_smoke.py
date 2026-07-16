@@ -137,6 +137,8 @@ def test_interaction_gp_surface_contains_mean_and_uncertainty_views():
     figure = interaction_surface_figure(surface, data.base)
     assert len(figure.data) == 6
     assert len(figure.layout.updatemenus[0].buttons) == 5
+    assert figure.data[-1].name == "基準試料の観測値（この面と比較可能）"
+    assert len(figure.data[-1].x) == 1
 
 
 def test_raw_coordinate_viewer_uses_actual_atoms_without_bond_inference():
