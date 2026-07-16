@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from chemistory_gpr.handoff import load_handoff_data  # noqa: E402
+from chemistory_gpr.angle_report import derive_angle_coordinates  # noqa: E402
 from chemistory_gpr.visualization import _canonical_axis_vectors  # noqa: E402
 
 
@@ -40,6 +41,9 @@ def main() -> None:
 
     data = load_handoff_data(args.data_dir)
     row = data.base.set_index("file_key").loc[args.file_key]
+    angle_row = derive_angle_coordinates(data.base).set_index("file_key").loc[
+        args.file_key
+    ]
     c3h3, c6h6, axis = _canonical_axis_vectors(row)
     surface = pd.read_csv(
         args.results_dir / "gpr_handoff_interaction_surface_axis_tilt.csv"
@@ -48,6 +52,7 @@ def main() -> None:
     x_std, y_std, z_std = _surface_arrays(surface, "pred_std")
 
     figure = plt.figure(figsize=(16, 5.1), constrained_layout=True)
+    figure.patch.set_facecolor("white")
     molecular = figure.add_subplot(1, 3, 1, projection="3d")
     grid = np.linspace(-1.05, 1.05, 2)
     plane_x, plane_y = np.meshgrid(grid, grid)
@@ -95,12 +100,24 @@ def main() -> None:
     mean_surface = mean_axis.plot_surface(
         x_mean, y_mean, z_mean, cmap="viridis", linewidth=0, antialiased=True
     )
+    mean_axis.scatter(
+        [float(angle_row["axis_angle_deg"])],
+        [float(angle_row["axis_abs_elevation_deg_proxy"])],
+        [float(row["y"])],
+        color="#ff7f0e",
+        marker="D",
+        s=55,
+        edgecolor="#333333",
+        linewidth=0.8,
+        label="reference observation",
+    )
     mean_axis.set(
         xlabel="Axis azimuth (deg)",
         ylabel="Absolute elevation proxy (deg)",
         zlabel="Predicted mean",
-        title="Product GP conditional mean",
+        title="Conditional mean — other 110 inputs fixed",
     )
+    mean_axis.legend(loc="upper left", fontsize=8)
     figure.colorbar(mean_surface, ax=mean_axis, shrink=0.58, pad=0.08)
 
     std_axis = figure.add_subplot(1, 3, 3, projection="3d")
@@ -111,16 +128,22 @@ def main() -> None:
         xlabel="Axis azimuth (deg)",
         ylabel="Absolute elevation proxy (deg)",
         zlabel="Predictive std",
-        title="Product GP uncertainty",
+        title="Conditional uncertainty — other 110 inputs fixed",
     )
     figure.colorbar(std_surface, ax=std_axis, shrink=0.58, pad=0.08)
     figure.suptitle(
-        "GPR_handoff: molecular-axis schematic and conditional Product-GP surfaces",
+        "GPR_handoff: axis schematic and one conditional Product-GP slice",
         fontsize=14,
     )
 
     output = args.figures_dir / "gpr_handoff_static_overview.png"
-    figure.savefig(output, dpi=180, bbox_inches="tight")
+    figure.savefig(
+        output,
+        dpi=180,
+        bbox_inches="tight",
+        facecolor="white",
+        transparent=False,
+    )
     plt.close(figure)
     print(output)
 

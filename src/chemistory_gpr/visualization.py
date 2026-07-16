@@ -462,7 +462,14 @@ def _surface_matrix(table: pd.DataFrame, column: str) -> tuple[np.ndarray, np.nd
 
 
 def interaction_surface_figure(surface: pd.DataFrame, base: pd.DataFrame) -> go.Figure:
-    """Plot mean, standard deviation and 95% width of a saved GP slice."""
+    """Plot a conditional GP slice without a misleading projected data cloud.
+
+    The surface holds every unplotted input at ``reference_file_key``.  Other
+    observations generally have different values for those hidden inputs, so
+    they are not observations of this conditional slice.  Only the reference
+    observation is therefore overlaid.  Goodness of fit belongs in the OOF
+    observed-versus-predicted figure, not in this descriptive surface.
+    """
     required = {
         "axis_angle_deg",
         "surface_feature_value",
@@ -484,15 +491,13 @@ def interaction_surface_figure(surface: pd.DataFrame, base: pd.DataFrame) -> go.
     label = str(metadata["surface_feature_label"])
     grid_kind = str(metadata["grid_kind"])
     reference = str(metadata["reference_file_key"])
+    reference_rows = base.loc[base["file_key"].astype(str).eq(reference)]
+    if len(reference_rows) != 1:
+        raise ValueError(f"reference_file_key must identify one base row: {reference}")
+    reference_row = reference_rows.iloc[0]
     angles = derive_angle_coordinates(base)
-    if grid_kind == "axis_tilt":
-        observed_feature = angles["axis_abs_elevation_deg_proxy"].to_numpy(float)
-    elif grid_kind == "axis_deviation":
-        observed_feature = angles["antiparallel_deviation_deg"].to_numpy(float)
-    else:
-        if feature not in base.columns:
-            raise ValueError(f"Base data do not contain {feature}")
-        observed_feature = base[feature].to_numpy(float)
+    if grid_kind not in {"axis_tilt", "axis_deviation"} and feature not in base.columns:
+        raise ValueError(f"Base data do not contain {feature}")
 
     columns = [
         ("pred_mean", "予測平均", "Viridis"),
@@ -519,16 +524,29 @@ def interaction_surface_figure(surface: pd.DataFrame, base: pd.DataFrame) -> go.
                 ),
             )
         )
-    custom = np.column_stack([base["file_key"], base["y"]])
+    reference_angle_row = angles.loc[
+        angles["file_key"].astype(str).eq(reference)
+    ].iloc[0]
+    if grid_kind == "axis_tilt":
+        reference_feature = float(reference_angle_row["axis_abs_elevation_deg_proxy"])
+    elif grid_kind == "axis_deviation":
+        reference_feature = float(reference_angle_row["antiparallel_deviation_deg"])
+    else:
+        reference_feature = float(reference_row[feature])
     fig.add_trace(
         go.Scatter3d(
-            x=angles["axis_angle_deg"],
-            y=observed_feature,
-            z=base["y"],
+            x=[float(reference_angle_row["axis_angle_deg"])],
+            y=[reference_feature],
+            z=[float(reference_row["y"])],
             mode="markers",
-            marker={"size": 4, "color": base["y"], "colorscale": "Turbo", "opacity": 0.58},
-            customdata=custom,
-            name="observed（2座標への射影）",
+            marker={
+                "size": 7,
+                "color": "#ff7f0e",
+                "symbol": "diamond",
+                "line": {"width": 1.5, "color": "#333"},
+            },
+            customdata=[[reference, float(reference_row["y"])]],
+            name="基準試料の観測値（この面と比較可能）",
             visible=True,
             hovertemplate=(
                 "%{customdata[0]}<br>azimuth=%{x:.2f}°<br>slice coordinate=%{y:.3f}"
@@ -538,7 +556,7 @@ def interaction_surface_figure(surface: pd.DataFrame, base: pd.DataFrame) -> go.
     )
     buttons = []
     for index, (_, title, _) in enumerate(columns):
-        visible = [False] * len(columns) + [index in {0, 3, 4}]
+        visible = [False] * len(columns) + [index == 0]
         visible[index] = True
         buttons.append(
             {
@@ -549,7 +567,7 @@ def interaction_surface_figure(surface: pd.DataFrame, base: pd.DataFrame) -> go.
                     {
                         "title.text": (
                             f"Interaction GP conditional slice — {title}<br>"
-                            f"reference={reference}; other {len(base.columns) - 2} summary coordinates and X_proc are fixed"
+                            f"reference={reference}; unshown inputs are fixed to this sample"
                         ),
                         "scene.zaxis.title.text": title,
                         "scene.zaxis.autorange": True,
@@ -561,7 +579,7 @@ def interaction_surface_figure(surface: pd.DataFrame, base: pd.DataFrame) -> go.
         title={
             "text": (
                 f"Interaction GP conditional slice — 予測平均<br>reference={reference}; "
-                "surface is a model slice, not the original 3-D atomic structure"
+                "only the orange reference observation is comparable to this slice"
             ),
             "x": 0.5,
         },
